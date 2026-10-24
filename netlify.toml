@@ -1,0 +1,9 @@
+# Netlify runs the Next.js app on its own runtime. Meetings are coordinated through Netlify Blobs,
+# which every site has, so there is nothing else to set up. Audio and video go peer to peer.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"

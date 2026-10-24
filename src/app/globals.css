@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/* One dark palette: meetings are looked at for an hour at a time, often with the lights low. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --panel: #13161d;
+  --tile: #1a1e27;
+  --raise: #222734;
+  --line: #2a3040;
+  --ink: #eef0f6;
+  --ink-2: #b4b9c8;
+  --muted: #7c8396;
+  --accent: #6d7cff;
+  --accent-2: #8f6dff;
+  --accent-ink: #b9c1ff;
+  --good: #3ecf8e;
+  --warn: #f5b84a;
+  --danger: #ef4d5a;
+  --speaking: #5ee0a0;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-tile: var(--tile);
+  --color-raise: var(--raise);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Components sit in Tailwind's components layer, so utilities on the same element win. */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    padding: 0 1rem;
+    border-radius: 0.75rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+    background: var(--raise);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: #2a3040; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.5; pointer-events: none; }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-color: transparent;
+    color: white;
+  }
+  .btn-primary:hover { background: linear-gradient(135deg, #7d8aff, #9d7fff); }
+  .btn-danger { background: var(--danger); border-color: transparent; color: white; }
+  .btn-danger:hover { background: #f4606b; }
+
+  .input {
+    height: 2.75rem;
+    width: 100%;
+    border-radius: 0.75rem;
+    padding: 0 0.9rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(109, 124, 255, 0.25); }
+  .input::placeholder { color: var(--muted); }
+  select.input { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 2rem; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 1.25rem;
+  }
+
+  /* A control-bar button: round, with a label underneath on wide screens. */
+  .ctl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.7rem;
+    color: var(--ink-2);
+    min-width: 3.5rem;
+  }
+  .ctl > span:first-child {
+    display: grid;
+    place-items: center;
+    width: 2.9rem;
+    height: 2.9rem;
+    border-radius: 999px;
+    background: var(--raise);
+    color: var(--ink);
+    transition: background 0.15s, transform 0.1s;
+    position: relative;
+  }
+  .ctl:hover > span:first-child { background: #2e3446; }
+  .ctl:active > span:first-child { transform: scale(0.96); }
+  .ctl[data-off="true"] > span:first-child { background: var(--danger); color: white; }
+  .ctl[data-on="true"] > span:first-child { background: var(--accent); color: white; }
+
+  .tile-video { width: 100%; height: 100%; object-fit: cover; }
+  .mirror { transform: scaleX(-1); }
+}
+
+@keyframes float-up {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  12% { transform: translateY(-10px) scale(1.15); opacity: 1; }
+  100% { transform: translateY(-160px) scale(1); opacity: 0; }
+}
+.reaction { animation: float-up 3s ease-out forwards; }
+
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast { animation: toast-in 0.25s ease-out; }
+
+@keyframes pulse-dot { 50% { opacity: 0.35; } }
+.rec-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
