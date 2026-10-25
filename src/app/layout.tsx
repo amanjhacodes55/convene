@@ -15,7 +15,16 @@ export const viewport: Viewport = { themeColor: "#0b0d12" };
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full flex flex-col font-sans">
+        {children}
+        {/* Netlify injects a "Powered by Netlify" badge that sits over the call controls: remove it,
+            and keep removing it if it is injected again. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(()=>{const k=()=>document.querySelectorAll('#nl-badge-frame,#nl-badge,[id^="nl-badge"]').forEach(e=>e.remove());k();new MutationObserver(k).observe(document.documentElement,{childList:true,subtree:true})})()`,
+          }}
+        />
+      </body>
     </html>
   );
 }
