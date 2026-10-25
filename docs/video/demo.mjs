@@ -122,6 +122,11 @@ const sam = await participant("sam");
 await app.goto(BASE);
 await app.waitForLoadState("networkidle");
 
+// An attendee's own browser, filmed while they register.
+const reg = await (await newContext(browser)).newPage();
+const R = pointer(reg);
+const joinUrls = {};
+
 const card = await (await newContext(browser)).newPage();
 await card.setContent(fs.readFileSync(path.join(HERE, "outro.html"), "utf8").replace("{{LIVE}}", LIVE), { waitUntil: "networkidle" });
 
@@ -135,11 +140,12 @@ let code = "";
 let appUrl = "";
 let oauthSecret = "";
 
-/** A teammate opens the invite link and asks to join (the waiting room is on). */
+/** A teammate opens their personal link (registration and passcode in it) and asks to join. */
 async function knock(page, name) {
-  await page.goto(`${BASE}/m/${code}`);
+  await page.goto(joinUrls[name]);
   await page.locator("#join:not([disabled])").waitFor();
-  await page.fill("#name", name);
+  // The lobby fills in their registered name.
+  await page.waitForFunction(() => document.querySelector("#name")?.value);
   await page.click("#join");
 }
 
@@ -177,20 +183,61 @@ const beats = [
     await A.click(app.locator("#su-submit"));
     await app.waitForURL(/\/app$/);
   } },
-  { page: app, text: "Schedule a meeting with a topic, a time and an agenda. The waiting room stays on, so you decide who comes in.", run: async () => {
+  { page: app, text: "Schedule a meeting with a topic, a time and an agenda. As on Zoom, protect it with a passcode and a waiting room, and require registration that you approve, with a phone number.", run: async () => {
     await sleep(300);
     await A.click(app.locator("#schedule"));
     await A.click(app.locator("#sched-topic"));
     await A.type("Weekly design review", { cps: 24 });
     await A.click(app.locator("#sched-agenda"));
     await A.type("Onboarding flow and launch checklist", { cps: 34 });
-    await A.hover(app.getByText("Waiting room: I'll admit people"), { dx: 0.2, ms: 700 });
+    await A.hover(app.locator("#sched-passcode"), { ms: 700 });
     await sleep(300);
+    await A.hover(app.locator("#sched-registration"), { ms: 600 });
+    await app.selectOption("#sched-registration", "manual");
+    await sleep(300);
+    await A.click(app.locator("#sched-phone"));
+    await A.click(app.locator("#sched-more"));
+    await sleep(500);
+    await A.hover(app.locator("#sched-hide-list"), { dx: 0.3, ms: 700 });
+    await sleep(400);
     await A.click(app.locator("#sched-save"));
     await app.locator("[data-meeting]").waitFor();
     code = await app.locator("[data-meeting]").getAttribute("data-meeting");
     await sleep(500);
     await A.hover(app.locator("[data-meeting]"), { dx: 0.3, ms: 900 });
+  } },
+
+  { page: reg, text: "Attendees register with their name, email and phone, and wait for you to approve them.", before: async () => {
+    await reg.goto(`${BASE}/r/${code}`);
+    await reg.locator("#reg-name").waitFor();
+  }, run: async () => {
+    await sleep(400);
+    await R.click(reg.locator("#reg-name"));
+    await R.type("Leo Park", { cps: 20 });
+    await R.click(reg.locator("#reg-email"));
+    await R.type("leo@acme.dev", { cps: 24 });
+    await R.click(reg.locator("#reg-phone"));
+    await R.type("+1 415 555 0142", { cps: 20 });
+    await R.click(reg.locator("#reg-submit"));
+    await reg.locator("#reg-pending").waitFor();
+    await sleep(600);
+  } },
+  { page: app, text: "Approve them from the meeting's page, and their personal join link appears. You can export every registrant too.", run: async () => {
+    await A.click(app.locator("[data-meeting]"));
+    await app.locator("#registrants").waitFor();
+    await sleep(300);
+    await A.scroll(420, 900);
+    await sleep(300);
+    await A.click(app.locator('[data-approve="leo@acme.dev"]'));
+    await sleep(500);
+    await A.hover(app.locator("#registrants").getByRole("button", { name: "CSV" }), { ms: 700 });
+    await reg.locator("#reg-approved").waitFor({ timeout: 15_000 });
+    joinUrls["Leo Park"] = await reg.locator("#reg-join").getAttribute("href");
+    // The other two register off camera; the host adds them, approved.
+    for (const [name, email, phone] of [["Priya Nair", "priya@acme.dev", "+1 415 555 0177"], ["Sam Okafor", "sam@acme.dev", "+1 415 555 0193"]]) {
+      joinUrls[name] = await app.evaluate(async ([c, name, email, phone]) => (await (await fetch(`/api/meetings/${c}/registrants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, phone }) })).json()).join_url, [code, name, email, phone]);
+    }
+    await sleep(400);
   } },
 
   // ---- a developer app with webhooks
@@ -218,7 +265,7 @@ const beats = [
     await A.click(app.locator("#tab-webhooks"));
     await A.click(app.locator("#use-inbox"));
     await sleep(300);
-    for (const e of ["meeting.created", "participant.waiting"]) await A.click(app.locator(`[data-event="${e}"]`), { ms: 500 });
+    for (const e of ["participant.waiting", "meeting.registration_created"]) await A.click(app.locator(`[data-event="${e}"]`), { ms: 500 });
     await A.click(app.locator("#save-hook"));
     await sleep(500);
     await A.scroll(320, 900);
@@ -248,7 +295,7 @@ const beats = [
     // The portal tab, off camera, so the API beat later opens on the app.
     await dev.goto(appUrl);
   } },
-  { page: app, top: true, text: "Teammates knock from the invite link. Admit them straight from the notice, or let everyone in at once.", run: async () => {
+  { page: app, top: true, text: "Teammates knock with their personal links. Admit them straight from the notice, or let everyone in at once.", run: async () => {
     await knock(leo, "Leo Park");
     const toast = app.locator(".toast", { hasText: "Leo Park" });
     await toast.waitFor({ timeout: 15_000 });
@@ -347,9 +394,11 @@ const beats = [
     await sleep(700);
     await app.keyboard.press("Escape");
   } },
-  { page: app, top: true, text: "And keep control: mute anyone, lock the meeting so nobody new can join, or remove someone.", run: async () => {
+  { page: app, top: true, text: "As host, you see who everyone is, with their email and phone. Mute anyone, lock the meeting, or remove someone.", run: async () => {
     await A.click(app.locator("#ctl-people"));
     await sleep(500);
+    await A.hover(app.locator("[data-contact]").first(), { dx: 0.4, ms: 800 });
+    await sleep(700);
     const row = app.locator("aside .group", { hasText: "Sam Okafor" });
     await A.hover(row, { dx: 0.4, ms: 800 });
     await sleep(300);
@@ -361,9 +410,47 @@ const beats = [
     await sleep(300);
   } },
 
+  { page: app, top: true, text: "The Security menu works like Zoom's. Hide the participant list, keep chat with the host, or keep screen sharing to yourself, live, for everyone.", run: async () => {
+    await A.click(app.getByRole("button", { name: /^Close people/ }));
+    await A.click(app.locator("#ctl-security"));
+    await sleep(600);
+    await A.click(app.locator("#sec-hide-list"));
+    await sleep(300);
+    await A.click(app.locator("#sec-chat-host"));
+    await sleep(300);
+    await A.click(app.locator("#sec-share"));
+    await sleep(600);
+    await app.keyboard.press("Escape");
+  } },
+  { page: app, top: true, text: "Run a quick poll. Votes come in live, and the results go to everyone when you end it.", run: async () => {
+    await A.click(app.locator("#ctl-polls"));
+    await A.click(app.locator("#poll-question"));
+    await A.type("Ship the new onboarding on Friday?", { cps: 30 });
+    await A.click(app.locator('[data-poll-option="0"]'));
+    await A.type("Yes, ship it", { cps: 30 });
+    await A.click(app.locator('[data-poll-option="1"]'));
+    await A.type("Next week", { cps: 30 });
+    await A.click(app.locator("#poll-launch"));
+    for (const [p, choice] of [[leo, "Yes, ship it"], [priya, "Yes, ship it"], [sam, "Next week"]]) {
+      await p.click("#ctl-polls");
+      await p.getByRole("button", { name: choice }).click();
+      await sleep(500);
+    }
+    await sleep(600);
+    await A.click(app.locator("#poll-end"));
+    await sleep(800);
+  } },
+  { page: app, top: true, text: "Make someone a co-host, and they get the host controls too.", run: async () => {
+    await A.click(app.locator("#ctl-people"));
+    await sleep(400);
+    await A.hover(app.locator("aside .group", { hasText: "Leo Park" }), { dx: 0.4, ms: 700 });
+    await A.click(app.getByRole("button", { name: "Make Leo Park a co-host" }));
+    await sleep(900);
+    await A.click(app.getByRole("button", { name: /^Close people/ }));
+  } },
+
   // ---- the API and webhooks, while the meeting runs
   { page: dev, text: "Meanwhile, apps can reach into a live meeting. In the API playground, post a message to its chat.", run: async () => {
-    await app.getByRole("button", { name: /^Close people/ }).click();
     await sleep(400);
     await D.click(dev.locator("#tab-playground"));
     await sleep(300);
@@ -390,7 +477,7 @@ const beats = [
     await sleep(300);
     await D.scroll(560, 1100);
     await sleep(400);
-    await D.click(dev.locator("#inbox button", { hasText: "participant.joined" }).last());
+    await D.click(dev.locator("#inbox button", { hasText: "participant.joined" }).first());
     await sleep(600);
     await D.hover(dev.locator("#inbox").getByText("Signature verified"), { ms: 800 });
     await sleep(500);
@@ -409,13 +496,13 @@ const beats = [
     await A.click(app.locator("#menu-end"));
     await sleep(900);
   } },
-  { page: app, text: "Then see who attended, when they joined and left, and for how long.", run: async () => {
+  { page: app, text: "Then see who attended, with their email and phone, when they joined and left, and for how long.", run: async () => {
     await app.goto(`${BASE}/app/meetings/${code}`);
     await app.getByRole("heading", { name: "Attendance report" }).waitFor();
     await sleep(400);
-    await A.scroll(420, 1100);
+    await A.scroll(900, 1400);
     await sleep(500);
-    await A.hover(app.locator("table tbody tr").nth(1), { dx: 0.5, ms: 900 });
+    await A.hover(app.locator("table").last().locator("tbody tr").nth(1), { dx: 0.4, ms: 900 });
     await sleep(600);
   } },
 
