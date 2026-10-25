@@ -11,6 +11,7 @@
 [![WebRTC](https://img.shields.io/badge/WebRTC-peer%20to%20peer-333?logo=webrtc&logoColor=white)](https://webrtc.org)
 
 **Live:** <https://convene-meet.netlify.app> · [Developer docs](https://convene-meet.netlify.app/developers/docs) ·
+[Android app](https://github.com/amanjhacodes55/convene/releases/tag/android-v1.0.0) ·
 [**Watch the demo video (4 min)**](docs/media/convene-demo.mp4)
 
 [![Convene demo video: a meeting in gallery view](docs/media/call.jpg)](docs/media/convene-demo.mp4)
@@ -173,6 +174,11 @@ inbox, creates a meeting from the playground, and posts a message that appears i
 schedule meetings, see upcoming and past meetings with attendance reports, and share invitations. The call
 runs the web meeting page in a WebView, so everything but screen sharing works as in a browser. See
 [android/README.md](android/README.md) to build it.
+
+**[Download the APK](https://github.com/amanjhacodes55/convene/releases/download/android-v1.0.0/convene-android-v1.0.0.apk)**
+(Android 8.0+) from the [latest release](https://github.com/amanjhacodes55/convene/releases/tag/android-v1.0.0).
+
+<img src="android/docs/screenshots/home.png" alt="Convene for Android: home screen" width="260" />
 
 ## License
 
