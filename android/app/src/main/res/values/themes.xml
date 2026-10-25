@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws the UI; the window theme only needs the dark background so launch has no white flash. -->
+    <style name="Theme.Convene" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorAccent">@color/accent</item>
+    </style>
+
+    <style name="Theme.Convene.Call" parent="Theme.Convene">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <color name="bg">#0B0D12</color>
+    <color name="accent">#6D7CFF</color>
+</resources>
