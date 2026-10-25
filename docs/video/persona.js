@@ -2,7 +2,8 @@
 // getUserMedia returns an illustrated person drawn on a canvas, plus a microphone track whose
 // "voice" is band-passed noise shaped into syllables. window.__persona.say(ms) makes them talk
 // (mouth and audio together), so the app's real speaking detection lights up their tile.
-// getDisplayMedia returns a drawn slide deck; __persona.nextSlide() advances it.
+// getDisplayMedia returns a drawn slide deck; __persona.nextSlide() advances it. Speech recognition is
+// replaced too: __persona.caption(text, ms) speaks a line and hands it to the app as live captions.
 (() => {
   const P = window.__PERSONA__;
   if (!P || window.top !== window) return;
@@ -344,8 +345,31 @@
     { kind: "audiooutput", deviceId: "spk-2", label: "USB Headset", groupId: "c" },
   ];
 
+  // Speech recognition stand-in: the personas' "voices" are shaped noise that no recogniser could
+  // transcribe, so the demo feeds the line being spoken to the app's real captions code instead.
+  let recognizers = [];
+  class Recognition {
+    start() { recognizers.push(this); }
+    stop() { recognizers = recognizers.filter((r) => r !== this); this.onend?.(); }
+  }
+  window.SpeechRecognition = window.webkitSpeechRecognition = Recognition;
+
   window.__persona = {
     say: (ms) => (talkingUntil = Date.now() + ms),
     nextSlide: () => slide++,
+    listening: () => recognizers.length > 0,
+    // Speaks a line as captions, word by word, over ms.
+    caption: (text, ms) => {
+      talkingUntil = Date.now() + ms;
+      const words = text.split(" ");
+      let i = 0;
+      const tick = () => {
+        i++;
+        const results = [Object.assign([{ transcript: words.slice(0, i).join(" ") }], { isFinal: i === words.length })];
+        recognizers.forEach((r) => r.onresult?.({ resultIndex: 0, results }));
+        if (i < words.length) setTimeout(tick, ms / words.length);
+      };
+      tick();
+    },
   };
 })();

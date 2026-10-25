@@ -1,8 +1,10 @@
-// Records the Convene walkthrough: a real meeting in the running app, filmed from the host's side,
-// with three teammates joining from their own browsers. Cameras and microphones are virtual personas
-// (persona.js), so the video needs no real people. Narrated by Kokoro, small one-line captions.
+// Records the Convene walkthrough in the running app, filmed from the host's side: an account and a
+// scheduled meeting, a developer app with webhooks, a real meeting with three teammates joining from
+// their own browsers, an app posting into the live chat, the attendance report, and OAuth. Cameras
+// and microphones are virtual personas (persona.js), so the video needs no real people. Narrated by
+// Kokoro, small one-line captions.
 //
-//   1. npm run build && npx next start -p 3021
+//   1. npm run build && npx next start -p 3021   (a fresh server: the demo signs up as Maya)
 //   2. node docs/video/demo.mjs   (TTS_PYTHON / VOICE optional, see tts.py; LIVE_URL for the outro)
 //
 // Output: docs/media/convene-demo.mp4 (captions burned in); the .srt goes to build/.
@@ -97,13 +99,14 @@ function cues(text, file) {
 
 // ---------------------------------------------------------------------------------------------
 // Setup (not recorded): Maya, who hosts and is filmed, plus three teammates in their own browsers.
-// Each one's camera and microphone are a virtual persona (persona.js, cast in personas.mjs).
+// Each one's camera and microphone are a virtual persona (persona.js, cast in personas.mjs). Maya has
+// two tabs: the call, and the developer portal beside it. Start from a fresh server: the demo signs up.
 
 const PERSONA = fs.readFileSync(path.join(HERE, "persona.js"), "utf8");
 const browser = await launch();
 async function participant(key, filmed = false) {
   const ctx = filmed
-    ? await newContext(browser, { permissions: ["clipboard-read", "clipboard-write"] })
+    ? await newContext(browser, { permissions: ["clipboard-read", "clipboard-write"], acceptDownloads: false })
     : await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await ctx.addInitScript(`window.__PERSONA__ = ${JSON.stringify(PERSONAS[key])};\n${PERSONA}`);
   const page = await ctx.newPage();
@@ -111,6 +114,8 @@ async function participant(key, filmed = false) {
   return page;
 }
 const app = await participant("maya", true);
+const dev = await app.context().newPage();
+dev.on("pageerror", (e) => console.warn("[dev]", e.message));
 const leo = await participant("leo");
 const priya = await participant("priya");
 const sam = await participant("sam");
@@ -121,9 +126,14 @@ const card = await (await newContext(browser)).newPage();
 await card.setContent(fs.readFileSync(path.join(HERE, "outro.html"), "utf8").replace("{{LIVE}}", LIVE), { waitUntil: "networkidle" });
 
 const A = pointer(app);
+const D = pointer(dev);
 const say = (page, ms) => page.evaluate((ms) => window.__persona.say(ms), ms);
+const caption = (page, text, ms) => page.evaluate(([t, ms]) => window.__persona.caption(t, ms), [text, ms]);
 const tile = (name) => app.locator("[data-tile]", { hasText: name }).first();
+const nav = (label) => app.locator("aside").getByRole("link", { name: label });
 let code = "";
+let appUrl = "";
+let oauthSecret = "";
 
 /** A teammate opens the invite link and asks to join (the waiting room is on). */
 async function knock(page, name) {
@@ -133,134 +143,332 @@ async function knock(page, name) {
   await page.click("#join");
 }
 
+/** Opens a tile's menu and picks an action. */
+async function tileAction(name, action) {
+  await A.hover(tile(name), { dx: 0.6, dy: 0.4, ms: 800 });
+  await sleep(250);
+  await A.click(app.getByRole("button", { name: `Options for ${name}` }));
+  await sleep(350);
+  await A.click(app.getByRole("menuitem", { name: action }));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Beats: one or two sentences each, with the actions that happen while they're spoken.
 
 const beats = [
-  { page: app, text: "This is Convene: open-source video meetings that open in a browser tab. No app to install, and no account to make.", run: async () => {
-    await sleep(700);
+  // ---- the product and an account
+  { page: app, text: "This is Convene: open-source video meetings that run in a browser tab, with a developer platform like Zoom's, that you can host yourself.", run: async () => {
+    await sleep(600);
     await A.hover(app.getByRole("heading", { level: 1 }), { dx: 0.7, dy: 0.65, ms: 1300 });
-    await sleep(900);
+    await sleep(1200);
     await A.hover(app.locator("[aria-hidden] .card").first(), { dx: 0.5, dy: 0.45, ms: 1200 });
+    await sleep(900);
+    await A.hover(app.getByRole("link", { name: "Developers" }).first(), { ms: 900 });
   } },
-  { page: app, text: "Give your meeting a name, turn on the waiting room, and start it with one click.", run: async () => {
-    await A.click(app.locator("#title"));
-    await A.type("Weekly design review", { cps: 20 });
-    await A.click(app.getByText("Use a waiting room"), { dx: 0.1 });
-    await A.click(app.locator("#new-meeting"));
-    await app.waitForURL(/\/m\/[a-z-]+$/);
-    code = app.url().split("/m/")[1];
-    await app.locator("#join:not([disabled])").waitFor();
+  { page: app, text: "Joining never needs an account. A free one adds scheduling, attendance reports, and the developer tools.", run: async () => {
+    await A.click(app.getByRole("link", { name: "Sign up free" }));
+    await app.locator("#su-name").waitFor();
+    await A.click(app.locator("#su-name"));
+    await A.type("Maya Chen", { cps: 18 });
+    await A.click(app.locator("#su-email"));
+    await A.type("maya@acme.dev", { cps: 22 });
+    await A.click(app.locator("#su-password"));
+    await A.type("a long passphrase", { cps: 26 });
+    await A.click(app.locator("#su-submit"));
+    await app.waitForURL(/\/app$/);
   } },
-  { page: app, text: "Before you join, check how you look and sound, and pick your camera, microphone, and speakers.", run: async () => {
+  { page: app, text: "Schedule a meeting with a topic, a time and an agenda. The waiting room stays on, so you decide who comes in.", run: async () => {
+    await sleep(300);
+    await A.click(app.locator("#schedule"));
+    await A.click(app.locator("#sched-topic"));
+    await A.type("Weekly design review", { cps: 24 });
+    await A.click(app.locator("#sched-agenda"));
+    await A.type("Onboarding flow and launch checklist", { cps: 34 });
+    await A.hover(app.getByText("Waiting room: I'll admit people"), { dx: 0.2, ms: 700 });
+    await sleep(300);
+    await A.click(app.locator("#sched-save"));
+    await app.locator("[data-meeting]").waitFor();
+    code = await app.locator("[data-meeting]").getAttribute("data-meeting");
+    await sleep(500);
+    await A.hover(app.locator("[data-meeting]"), { dx: 0.3, ms: 900 });
+  } },
+
+  // ---- a developer app with webhooks
+  { page: app, text: "Now the developer side. Create a server-to-server app for your own scripts, and choose exactly which scopes its tokens get. The secret is shown once, so copy it now.", run: async () => {
+    await A.click(nav("Your apps"));
+    await app.locator("#create-app").waitFor();
+    await A.click(app.locator("#create-app"));
     await sleep(400);
+    await A.click(app.locator("#type-server"));
+    await A.click(app.locator("#app-name"));
+    await A.type("Team sync bot", { cps: 22 });
+    await A.click(app.locator("#app-description"));
+    await A.type("Syncs meetings to our tracker", { cps: 34 });
+    for (const s of ["meeting:write", "participant:read", "chat:write"]) await A.click(app.locator(`[data-scope="${s}"]`), { ms: 450 });
+    await A.click(app.locator("#app-create"));
+    await app.locator("#new-client-secret").waitFor();
+    await sleep(600);
+    await A.hover(app.locator("#new-client-secret"), { dx: 0.3, ms: 700 });
+    await sleep(500);
+    await A.click(app.locator("#go-to-app"));
+    await app.waitForURL(/\/developers\/apps\/[0-9a-f]{16}$/);
+    appUrl = app.url();
+  } },
+  { page: app, text: "Subscribe to webhooks for the events you care about. No server yet? Point them at the built-in test inbox.", run: async () => {
+    await A.click(app.locator("#tab-webhooks"));
+    await A.click(app.locator("#use-inbox"));
+    await sleep(300);
+    for (const e of ["meeting.created", "participant.waiting"]) await A.click(app.locator(`[data-event="${e}"]`), { ms: 500 });
+    await A.click(app.locator("#save-hook"));
+    await sleep(500);
+    await A.scroll(320, 900);
+    await sleep(300);
+  } },
+
+  // ---- the meeting
+  { page: app, text: "Back in Meetings, start the one you scheduled. As its owner, you're the host on any device.", run: async () => {
+    await A.scroll(-400, 600);
+    await A.click(nav("Meetings"));
+    await app.locator("[data-meeting]").waitFor();
+    await sleep(300);
+    await A.click(app.locator("[data-meeting]").getByRole("link", { name: "Start" }));
+    await app.locator("#join:not([disabled])").waitFor();
+    await sleep(500);
+  } },
+  { page: app, text: "Check how you look and sound, and pick your camera, microphone and speakers, before you go in.", run: async () => {
     await say(app, 2600);
     await A.hover(app.getByLabel("Microphone level"), { dx: 0.4, ms: 900 });
     await sleep(900);
     await A.hover(app.locator("select").nth(0), { ms: 800 });
     await sleep(300);
     await A.hover(app.locator("select").nth(1), { ms: 600 });
-    await A.click(app.locator("#name"));
-    await A.type("Maya Chen", { cps: 16 });
-  } },
-  { page: app, text: "Join, and copy the invite link to send to your team.", run: async () => {
+    await sleep(300);
     await A.click(app.locator("#join"));
     await app.locator("#ctl-mic").waitFor();
-    await sleep(700);
-    await A.click(app.locator('button[title="Copy invite link"]'));
-    await sleep(600);
+    // The portal tab, off camera, so the API beat later opens on the app.
+    await dev.goto(appUrl);
   } },
-  { page: app, text: "With the waiting room on, people wait until you let them in. Admit them one at a time, or all at once.", run: async () => {
-    await Promise.all([knock(leo, "Leo Park"), knock(priya, "Priya Nair"), knock(sam, "Sam Okafor")]);
-    await app.getByText("Admit all").waitFor({ state: "attached", timeout: 15_000 }).catch(() => {});
-    await sleep(500);
+  { page: app, top: true, text: "Teammates knock from the invite link. Admit them straight from the notice, or let everyone in at once.", run: async () => {
+    await knock(leo, "Leo Park");
+    const toast = app.locator(".toast", { hasText: "Leo Park" });
+    await toast.waitFor({ timeout: 15_000 });
+    await Promise.all([knock(priya, "Priya Nair"), knock(sam, "Sam Okafor")]);
+    await sleep(300);
+    await A.click(toast.getByRole("button", { name: "Admit" }));
+    await sleep(600);
     await A.click(app.locator("#ctl-people"));
-    await sleep(900);
+    await app.getByText("Admit all").waitFor({ timeout: 15_000 });
+    await sleep(500);
     await A.click(app.getByText("Admit all"));
     await sleep(600);
   } },
-  { page: app, text: "Everyone connects directly, peer to peer, so video stays sharp and private.", run: async () => {
-    await A.click(app.getByRole("button", { name: /^Close people/ }));
-    await Promise.all(["Leo Park", "Priya Nair", "Sam Okafor"].map((n) => app.waitForFunction((n) => [...document.querySelectorAll("[data-tile]")].some((t) => t.textContent.includes(n) && t.querySelector("video")?.videoWidth > 0), n, { timeout: 20_000 })));
+  { page: app, top: true, text: "Everyone connects directly, peer to peer, so video stays sharp, and private.", before: async () => {
+    // Connections take a few seconds to set up: wait off camera.
+    await app.getByRole("button", { name: /^Close people/ }).click();
+    await Promise.all(["Leo Park", "Priya Nair", "Sam Okafor"].map((n) => app.waitForFunction((n) => [...document.querySelectorAll("[data-tile]")].some((t) => t.textContent.includes(n) && t.querySelector("video")?.videoWidth > 0), n, { timeout: 25_000 })));
+  }, run: async () => {
     await sleep(400);
     await A.hover(tile("Sam Okafor"), { dx: 0.5, dy: 0.5, ms: 1000 });
     await sleep(500);
     await A.hover(tile("Priya Nair"), { dx: 0.5, dy: 0.5, ms: 900 });
   } },
-  { page: app, text: "Whoever is talking gets a green outline, and speaker view puts them front and centre.", run: async () => {
+  { page: app, top: true, text: "Whoever is talking gets a green outline. Switch to speaker view from the View menu, and the stage follows whoever has the floor.", run: async () => {
     await say(leo, 9000);
     await A.hover(tile("Leo Park"), { dx: 0.45, dy: 0.6, ms: 900 });
-    await sleep(1400);
-    await A.click(app.getByRole("button", { name: "Change layout" }));
-    await sleep(2600);
-    await A.click(app.getByRole("button", { name: "Change layout" }));
-  } },
-  { page: app, text: "Raise your hand to speak next, or react without interrupting.", run: async () => {
-    await priya.click("#ctl-hand");
     await sleep(900);
+    await A.click(app.locator("#ctl-view"));
+    await sleep(350);
+    await A.click(app.locator("#view-speaker"));
+    await sleep(2400);
+    await A.click(app.locator("#ctl-view"));
+    await sleep(300);
+    await A.click(app.locator("#view-gallery"));
+  } },
+  { page: app, top: true, text: "As host, open anyone's tile menu and spotlight them. They fill the stage for everyone in the call, until you take it off.", run: async () => {
+    await tileAction("Priya Nair", "Spotlight for everyone");
+    await say(priya, 4000);
+    await sleep(2600);
+    await tileAction("Priya Nair", "Remove spotlight");
+  } },
+  { page: app, top: true, text: "Turn on live captions, and read along as people talk.", run: async () => {
+    await A.click(app.locator("#ctl-cc"));
+    // Leo's browser starts listening once it hears that someone wants captions.
+    await leo.waitForFunction(() => window.__persona.listening(), null, { timeout: 10_000 });
+    await caption(leo, "I pushed the new onboarding screens this morning, so take a look when you can.", 4200);
+    await sleep(3600);
+  } },
+  { page: app, top: true, text: "Raise a hand to speak next, or react without interrupting.", run: async () => {
+    await A.click(app.locator("#ctl-cc"));
+    await priya.click("#ctl-hand");
+    await sleep(800);
     await A.click(app.locator("#ctl-react"));
     await sleep(300);
     await A.click(app.getByRole("button", { name: "React 👏" }));
     await sam.click("#ctl-react");
     await sam.getByRole("button", { name: "React 🎉" }).click();
-    await sleep(500);
+    await sleep(400);
     await A.click(app.getByRole("button", { name: "React ❤️" }));
     await app.keyboard.press("Escape");
   } },
-  { page: app, text: "Chat with everyone during the call, and share links that open in a new tab.", run: async () => {
+  { page: app, top: true, text: "Chat with everyone, and share links that open in a new tab. Or message someone privately, straight from their tile; only they will see it.", run: async () => {
     await leo.click("#ctl-chat");
-    await leo.fill("#chat-input", "Notes from last week: https://notes.acme.dev/design-review");
+    await leo.fill("#chat-input", "Screens are here: https://figma.acme.dev/onboarding");
     await leo.keyboard.press("Enter");
-    await sleep(900);
-    await A.click(app.locator("#ctl-chat"));
-    await sleep(500);
+    await sleep(700);
+    await tileAction("Sam Okafor", "Message privately");
+    await sleep(400);
     await A.click(app.locator("#chat-input"));
-    await A.type("Thanks Leo! Priya, take it away.", { cps: 22 });
+    await A.type("Can you take notes today?", { cps: 22 });
     await app.keyboard.press("Enter");
+    await sleep(600);
   } },
-  { page: app, text: "Share your screen, and it takes the stage for everyone.", run: async () => {
+  { page: app, top: true, text: "Share your screen, and it takes the stage for everyone, with the presenter's camera in the strip beside it.", run: async () => {
     await A.click(app.getByRole("button", { name: "Close chat" }));
     await priya.click("#ctl-hand");
     await priya.click("#ctl-share");
     await say(priya, 9000);
     await app.locator('[data-tile$=":screen"]').waitFor();
-    await sleep(1600);
+    await sleep(1500);
     await A.hover(app.locator('[data-tile$=":screen"]'), { dx: 0.55, dy: 0.5, ms: 1000 });
-    await sleep(800);
+    await sleep(700);
     await priya.evaluate(() => window.__persona.nextSlide());
-    await sleep(1200);
+    await sleep(1100);
   } },
-  { page: app, text: "As host, you can mute anyone, lock the meeting so nobody new can join, or remove someone.", run: async () => {
+  { page: app, top: true, text: "Switch microphones mid-call, and check the meeting's details and encryption at a glance.", run: async () => {
     await priya.click("#ctl-share");
+    await A.click(app.getByRole("button", { name: "Audio options" }));
+    await sleep(700);
+    await A.click(app.getByRole("button", { name: "USB Headset" }).first());
+    await sleep(400);
+    await app.keyboard.press("Escape");
+    await A.click(app.locator("#meeting-info"));
+    await sleep(900);
+    await A.hover(app.locator("#copy-link"), { ms: 700 });
+    await sleep(700);
+    await app.keyboard.press("Escape");
+  } },
+  { page: app, top: true, text: "And keep control: mute anyone, lock the meeting so nobody new can join, or remove someone.", run: async () => {
     await A.click(app.locator("#ctl-people"));
-    await sleep(600);
+    await sleep(500);
     const row = app.locator("aside .group", { hasText: "Sam Okafor" });
     await A.hover(row, { dx: 0.4, ms: 800 });
     await sleep(300);
     await A.click(row.getByRole("button", { name: "Mute" }));
-    await sleep(700);
+    await sleep(600);
     await A.click(app.getByRole("switch", { name: /Lock meeting/ }));
     await sleep(500);
     await A.hover(row.getByRole("button", { name: "Remove Sam Okafor" }), { ms: 700 });
     await sleep(300);
   } },
-  { page: app, text: "Record the meeting to your own computer. Everyone sees that it's being recorded, and nothing is uploaded.", run: async () => {
-    await A.click(app.getByRole("button", { name: /^Close people/ }));
-    await A.click(app.locator("#ctl-more"));
+
+  // ---- the API and webhooks, while the meeting runs
+  { page: dev, text: "Meanwhile, apps can reach into a live meeting. In the API playground, post a message to its chat.", run: async () => {
+    await app.getByRole("button", { name: /^Close people/ }).click();
     await sleep(400);
-    await A.click(app.locator("#menu-record"));
-    await say(sam, 3000);
-    await sleep(2800);
-    await A.click(app.locator("#ctl-more"));
+    await D.click(dev.locator("#tab-playground"));
     await sleep(300);
-    await A.click(app.locator("#menu-record"));
+    await D.click(dev.locator('[data-endpoint="post-message"]'));
+    await sleep(500);
+    await D.hover(dev.locator("#pg-meeting"), { ms: 700 });
+    await sleep(300);
+    await D.click(dev.locator("#pg-send"));
+    await dev.locator("#pg-status").waitFor();
+    await sleep(400);
+    await D.scroll(380, 1000);
+  } },
+  { page: app, top: true, text: "It shows up in everyone's chat, labelled with the app's name.", run: async () => {
+    await sleep(400);
+    await A.click(app.locator("#ctl-chat"));
+    await sleep(600);
+    await A.hover(app.locator("[data-app-message]").last(), { dx: 0.5, ms: 900 });
     await sleep(800);
   } },
-  { page: app, text: "And when you're done, end the meeting for everyone.", run: async () => {
+  { page: dev, text: "And every knock, join and start reached the test inbox as a webhook, with its signature checked.", run: async () => {
+    await D.scroll(-600, 600);
+    await D.click(dev.locator("#tab-webhooks"));
+    await dev.locator("#inbox").waitFor({ timeout: 15_000 });
+    await sleep(300);
+    await D.scroll(560, 1100);
+    await sleep(400);
+    await D.click(dev.locator("#inbox button", { hasText: "participant.joined" }).last());
+    await sleep(600);
+    await D.hover(dev.locator("#inbox").getByText("Signature verified"), { ms: 800 });
+    await sleep(500);
+  } },
+  { page: app, top: true, text: "Record to your own computer. Everyone sees it's being recorded, and nothing is uploaded.", run: async () => {
+    await A.click(app.getByRole("button", { name: "Close chat" }));
+    await A.click(app.locator("#ctl-record"));
+    await say(leo, 3000);
+    await sleep(2600);
+    await A.click(app.locator("#ctl-record"));
+    await sleep(700);
+  } },
+  { page: app, top: true, text: "When you're done, end the meeting for everyone.", run: async () => {
     await A.click(app.locator("#ctl-leave"));
     await sleep(500);
     await A.click(app.locator("#menu-end"));
+    await sleep(900);
+  } },
+  { page: app, text: "Then see who attended, when they joined and left, and for how long.", run: async () => {
+    await app.goto(`${BASE}/app/meetings/${code}`);
+    await app.getByRole("heading", { name: "Attendance report" }).waitFor();
+    await sleep(400);
+    await A.scroll(420, 1100);
+    await sleep(500);
+    await A.hover(app.locator("table tbody tr").nth(1), { dx: 0.5, ms: 900 });
+    await sleep(600);
+  } },
+
+  // ---- OAuth for apps other people install
+  { page: app, text: "Building an app for other people? Make it an OAuth app, with a redirect URI and the scopes it needs.", run: async () => {
+    await A.scroll(-500, 500);
+    await A.click(nav("Your apps"));
+    await A.click(app.locator("#create-app"));
+    await sleep(300);
+    await A.click(app.locator("#type-oauth"));
+    await A.click(app.locator("#app-name"));
+    await A.type("Notes bot", { cps: 18 });
+    await A.click(app.locator("#app-description"));
+    await A.type("Takes notes in your meetings", { cps: 30 });
+    await A.click(app.locator('[data-scope="chat:write"]'), { ms: 500 });
+    await A.click(app.locator("#app-create"));
+    oauthSecret = await app.locator("#new-client-secret").textContent();
+    await sleep(500);
+    await A.click(app.locator("#go-to-app"));
+    await app.locator("#test-install").waitFor();
+    await sleep(300);
+    await A.scroll(300, 800);
+  } },
+  { page: app, text: "People see exactly what it's asking for, and choose to allow it.", run: async () => {
+    await A.click(app.locator("#test-install"));
+    await app.locator("#consent-allow").waitFor();
+    await sleep(900);
+    await A.hover(app.getByText("Post messages into the chat of your live meetings"), { dx: 0.3, ms: 900 });
+    await sleep(900);
+    await A.click(app.locator("#consent-allow"));
+    await app.waitForURL(/\/developers\/callback/);
+  } },
+  { page: app, text: "Your server swaps the code for tokens, and calls the API on their behalf. Tokens refresh, and can be revoked at any time.", run: async () => {
+    await sleep(500);
+    await A.click(app.locator("#cb-secret"));
+    await app.fill("#cb-secret", oauthSecret);
+    await sleep(300);
+    await A.click(app.locator("#cb-exchange"));
+    await app.getByText("refresh_token").waitFor();
+    await sleep(700);
+    await A.click(app.locator("#cb-me"));
+    await sleep(500);
+    await A.scroll(500, 1100);
+  } },
+  { page: app, text: "And it's all documented: endpoints, scopes, errors, and how to verify webhook signatures.", run: async () => {
+    await app.goto(`${BASE}/developers/docs`);
+    await sleep(500);
+    await A.hover(app.locator('nav[aria-label="On this page"]'), { dx: 0.5, dy: 0.3, ms: 900 });
+    await A.click(app.locator('nav[aria-label="On this page"] a[href="#create-meeting"]'));
+    await sleep(1400);
+    await A.click(app.locator('nav[aria-label="On this page"] a[href="#webhooks"]'));
     await sleep(800);
+    await A.scroll(700, 1400);
   } },
   { page: card, text: "Convene is free and open source, and runs on Netlify with no media server to manage. Grab it on GitHub.", run: async () => {
     await card.evaluate(() => document.body.classList.add("in"));
@@ -276,6 +484,7 @@ for (const [i, b] of beats.entries()) {
   if (only !== null && i > only) break;
   const vo = voice(b.say ?? b.text, b.text);
   const want = LEAD + vo.seconds + TAIL;
+  await b.before?.();
   await b.page.bringToFront();
   const rec = await startRecording(b.page);
   const started = Date.now();
@@ -284,7 +493,7 @@ for (const [i, b] of beats.entries()) {
   if (left > 0) await sleep(left * 1000);
   const out = path.join(BUILD, `beat${String(i).padStart(2, "0")}.mp4`);
   await rec.stop(out);
-  clips.push({ out, vo, text: b.text, seconds: probe(out) });
+  clips.push({ out, vo, text: b.text, top: b.top, seconds: probe(out) });
   console.log(`beat ${i}: ${clips.at(-1).seconds.toFixed(1)}s (voice ${vo.seconds.toFixed(1)}s)`);
 }
 await browser.close();
@@ -312,7 +521,8 @@ clips.forEach((c, i) => {
     // Only the last line of a beat lingers; inside a beat, one line hands straight to the next.
     const a = t + LEAD + q.start, b = t + LEAD + q.end + (q === c.vo.cues.at(-1) ? 0.25 : -0.02);
     srt += `${++n}\n${stamp(a)} --> ${stamp(b)}\n${q.line}\n\n`;
-    ass.push(`Dialogue: 0,${assStamp(a)},${assStamp(b)},Cap,,0,0,0,,{\\fad(120,120)}${q.line}`);
+    // In the call the controls are along the bottom, so captions move to the top there.
+    ass.push(`Dialogue: 0,${assStamp(a)},${assStamp(b)},Cap,,0,0,0,,{\\fad(120,120)${c.top ? "\\an8" : ""}}${q.line}`);
   }
   t += c.seconds;
 });

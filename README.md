@@ -10,7 +10,10 @@
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![WebRTC](https://img.shields.io/badge/WebRTC-peer%20to%20peer-333?logo=webrtc&logoColor=white)](https://webrtc.org)
 
-**Live:** <https://convene-meet.netlify.app> · [Developer docs](https://convene-meet.netlify.app/developers/docs)
+**Live:** <https://convene-meet.netlify.app> · [Developer docs](https://convene-meet.netlify.app/developers/docs) ·
+[**Watch the demo video (4 min)**](docs/media/convene-demo.mp4)
+
+[![Convene demo video: a meeting in gallery view](docs/media/call.jpg)](docs/media/convene-demo.mp4)
 
 </div>
 
@@ -68,6 +71,10 @@ Like the Zoom, Webex and Teams developer platforms, scaled to what a meeting app
   the install flow, and an **API playground** that sends real requests and shows the cURL.
 - **Docs** at [/developers/docs](https://convene-meet.netlify.app/developers/docs).
 
+| API playground | Webhooks in the test inbox |
+| --- | --- |
+| ![The API playground posting a message into a live meeting](docs/media/playground.jpg) | ![Signed webhook deliveries in the built-in test inbox](docs/media/webhooks.jpg) |
+
 ```bash
 # A server-to-server app: get a token, then schedule a meeting.
 curl -X POST https://convene-meet.netlify.app/oauth/token -u "$CLIENT_ID:$CLIENT_SECRET" -d grant_type=client_credentials
@@ -102,6 +109,15 @@ flowchart LR
 - **Hosts are enforced on the server.** Creating a meeting returns a host key (kept in the creator's
   browser); every participant gets a secret token. The waiting room, removal, locking and ending are checked
   server-side, not just hidden in the UI.
+
+## Documentation
+
+- [REST API and OAuth](docs/api.md): apps, the authorization-code and client-credentials flows, scopes,
+  errors and every endpoint.
+- [Webhooks](docs/webhooks.md): events, payloads, verifying signatures, the test inbox.
+- [Architecture](docs/architecture.md): how calls, accounts, OAuth and webhooks fit together.
+- [Self-hosting](docs/self-hosting.md): Netlify, other hosts, TURN and production notes.
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## Run it
 

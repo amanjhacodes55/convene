@@ -72,22 +72,27 @@ export function pointer(page) {
     async moveTo(tx, ty, ms) {
       const dist = Math.hypot(tx - x, ty - y);
       ms ??= Math.min(1100, 350 + dist * 0.9);
-      const steps = Math.max(2, Math.round(ms / 16));
       const sx = x, sy = y;
       // A slight arc reads as a hand, not a robot.
       const bow = Math.min(60, dist * 0.08);
-      for (let i = 1; i <= steps; i++) {
-        const t = ease(i / steps);
+      // Paced by the clock, not by a step count: with several live calls in the browser, each mouse
+      // event can take far longer than a frame, and a fixed number of steps would drag on.
+      const t0 = Date.now();
+      for (;;) {
+        const t = ease(Math.min(1, (Date.now() - t0) / ms));
         const off = Math.sin(Math.PI * t) * bow;
         await page.mouse.move(sx + (tx - sx) * t + off * 0.3, sy + (ty - sy) * t - off);
-        await sleep(ms / steps);
+        if (t >= 1) break;
+        await sleep(16);
       }
       x = tx; y = ty;
     },
     async hover(locator, { dx = 0.5, dy = 0.5, ms } = {}) {
       const loc = typeof locator === "string" ? page.locator(locator).first() : locator;
+      const t0 = Date.now();
       await loc.scrollIntoViewIfNeeded();
       const b = await loc.boundingBox();
+      if (Date.now() - t0 > 1500) console.warn(`slow to find ${loc}: ${Date.now() - t0} ms`);
       if (!b) throw new Error(`no box for ${locator}`);
       await self.moveTo(b.x + b.width * dx, b.y + b.height * dy, ms);
     },
