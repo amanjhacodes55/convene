@@ -107,7 +107,7 @@ export async function listDeliveries(ownerId: string, appId: string) {
   await ownApp(ownerId, appId);
   const store = kv();
   const keys = await store.list(`apps/${appId}/deliveries/`);
-  return (await Promise.all(keys.map((k) => store.get<Delivery>(k)))).filter((d): d is Delivery => d !== null);
+  return (await Promise.all(keys.map((k) => store.get<Delivery>(k, { listed: true })))).filter((d): d is Delivery => d !== null);
 }
 
 /** Sends a sample event now and returns how it went. */
@@ -160,7 +160,7 @@ export async function readBin(ownerId: string, binId: string) {
   if (!bin || bin.ownerId !== ownerId) throw new RoomError(404, "No such inbox.");
   const store = kv();
   const keys = await store.list(`bins/${binId}/req/`);
-  const reqs = (await Promise.all(keys.map((k) => store.get<BinRequest>(k)))).filter((r): r is BinRequest => r !== null);
+  const reqs = (await Promise.all(keys.map((k) => store.get<BinRequest>(k, { listed: true })))).filter((r): r is BinRequest => r !== null);
   // Check each signature against the developer's webhook secrets, as their own server would.
   const secrets = (await listApps(ownerId)).flatMap((a) => (a.webhook ? [a.webhook.secret] : []));
   const sig = (r: BinRequest) => r.headers["convene-signature"] ?? null;

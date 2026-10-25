@@ -368,7 +368,7 @@ export async function testToken(ownerId: string, id: string, now = Date.now()) {
 
 export async function listGrants(userId: string) {
   const store = kv();
-  const grants = await Promise.all((await store.list(`users/${userId}/grants/`)).map((k) => store.get<Grant>(k)));
+  const grants = await Promise.all((await store.list(`users/${userId}/grants/`)).map((k) => store.get<Grant>(k, { listed: true })));
   const out = [];
   for (const g of grants) {
     const app = g && (await getApp(g.appId));
@@ -387,7 +387,7 @@ export async function revokeGrant(userId: string, appId: string) {
 export async function appsListening(userId: string) {
   const store = kv();
   const own = await listApps(userId);
-  const grants = await Promise.all((await store.list(`users/${userId}/grants/`)).map((k) => store.get<Grant>(k)));
+  const grants = await Promise.all((await store.list(`users/${userId}/grants/`)).map((k) => store.get<Grant>(k, { listed: true })));
   const authorized = [];
   for (const g of grants) {
     if (!g || own.some((a) => a.id === g.appId)) continue;

@@ -5,7 +5,8 @@ import { getStore } from "@netlify/blobs";
 // Anywhere else it is an in-memory map, which is right for `next start` and tests: one process.
 
 export interface KV {
-  get<T>(key: string): Promise<T | null>;
+  /** `listed`: the key came from list() a moment ago, so it is almost certainly there. */
+  get<T>(key: string, opts?: { listed?: boolean }): Promise<T | null>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
   /** Keys under a prefix, in lexical order. */
@@ -34,7 +35,14 @@ export function memoryStore(): KV {
 function blobStore(): KV {
   const store = getStore({ name: "convene", consistency: "strong" });
   return {
-    async get<T>(key: string) {
+    async get<T>(key: string, opts?: { listed?: boolean }) {
+      // Reading a key that doesn't exist can take ~30 seconds: storage answers 403 for a missing
+      // object and the Blobs client retries that five times. Check that it exists first, unless the
+      // caller just listed it.
+      if (!opts?.listed) {
+        const { blobs } = await store.list({ prefix: key });
+        if (!blobs.some((b) => b.key === key)) return null;
+      }
       return ((await store.get(key, { type: "json" })) as T | null) ?? null;
     },
     async set(key, value) {

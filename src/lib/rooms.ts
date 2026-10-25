@@ -255,7 +255,7 @@ export async function roomInfo(code: string, userId?: string | null) {
 async function peers(code: string): Promise<Peer[]> {
   const store = kv();
   const keys = await store.list(`rooms/${code}/peers/`);
-  const all = await Promise.all(keys.map((k) => store.get<Peer>(k)));
+  const all = await Promise.all(keys.map((k) => store.get<Peer>(k, { listed: true })));
   return all.filter((p): p is Peer => p !== null);
 }
 
@@ -395,7 +395,7 @@ export async function poll(code: string, peer: Peer, ack: unknown, now = Date.no
   if (now - peer.lastSeen > HEARTBEAT_MS) await store.set(peerKey(code, peer.id), { ...peer, lastSeen: now });
   const meta = await getRoom(code);
   const keys = (await store.list(prefix)).slice(0, 200);
-  const messages = (await Promise.all(keys.map(async (k) => ({ ...(await store.get<Omit<Message, "id">>(k)), id: k.slice(prefix.length) }))))
+  const messages = (await Promise.all(keys.map(async (k) => ({ ...(await store.get<Omit<Message, "id">>(k, { listed: true })), id: k.slice(prefix.length) }))))
     .filter((m): m is Message => typeof m.type === "string");
   return { status: peer.status, ended: meta.endedAt !== null, messages };
 }
@@ -505,7 +505,7 @@ export async function ownRoom(userId: string, code: string) {
 export async function listRooms(userId: string) {
   const store = kv();
   const refs = await store.list(`users/${userId}/meetings/`);
-  const metas = await Promise.all(refs.map((k) => store.get<RoomMeta>(metaKey(k.split("/").pop()!))));
+  const metas = await Promise.all(refs.map((k) => store.get<RoomMeta>(metaKey(k.split("/").pop()!), { listed: true })));
   return metas.filter((m): m is RoomMeta => m !== null).sort((a, b) => (b.scheduledFor ?? b.createdAt) - (a.scheduledFor ?? a.createdAt));
 }
 
@@ -574,7 +574,7 @@ export async function liveParticipants(code: string, now = Date.now()) {
 /** Everyone who has been in the meeting, with how long they stayed. */
 export async function attendance(code: string, now = Date.now()) {
   const store = kv();
-  const rows = (await Promise.all((await store.list(`rooms/${code}/attendance/`)).map((k) => store.get<Attendance>(k)))).filter((a): a is Attendance => a !== null);
+  const rows = (await Promise.all((await store.list(`rooms/${code}/attendance/`)).map((k) => store.get<Attendance>(k, { listed: true })))).filter((a): a is Attendance => a !== null);
   // Someone who closed the tab without saying goodbye left when they last polled.
   const peerSeen = new Map((await peers(code)).map((p) => [p.id, p]));
   return rows
@@ -666,7 +666,7 @@ export async function registrationStatus(code: string, t: unknown) {
 async function registrantsOf(code: string) {
   const store = kv();
   const keys = await store.list(`rooms/${code}/registrants/`);
-  return (await Promise.all(keys.map((k) => store.get<Registrant>(k)))).filter((r): r is Registrant => r !== null).sort((a, b) => a.createdAt - b.createdAt);
+  return (await Promise.all(keys.map((k) => store.get<Registrant>(k, { listed: true })))).filter((r): r is Registrant => r !== null).sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function listRegistrants(userId: string, code: string) {
