@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Hand, Link2, Lock, MessageSquare, MicOff, Send, Star, UserMinus, VideoOff, X } from "lucide-react";
+import { BarChart3, Bot, Crown, EyeOff, Hand, Link2, Lock, Mail, MessageSquare, MicOff, Phone, Plus, Send, Star, UserMinus, VideoOff, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Meeting, MeetingState } from "@/client/meeting";
 import { Avatar, colorFor } from "./ui";
@@ -39,8 +39,14 @@ function Linked({ text }: { text: string }) {
 
 export function ChatPanel({ meeting, state, to, setTo, onClose }: { meeting: Meeting; state: MeetingState; to: string; setTo: (id: string) => void; onClose: () => void }) {
   const [text, setText] = useState("");
-  // A private recipient who has left falls back to everyone.
-  const recipient = state.remotes.find((r) => r.id === to);
+  const { chat } = state.settings;
+  const me = state.self;
+  // Who this user may write to under the host's chat rules (hosts may always write to anyone).
+  const allowed = me.host || chat === "everyone" ? state.remotes : chat === "host" ? state.remotes.filter((r) => r.host) : [];
+  const canEveryone = me.host || chat === "everyone";
+  const muted = !me.host && chat === "off";
+  // A private recipient who has left, or isn't allowed, falls back to the first one allowed.
+  const recipient = allowed.find((r) => r.id === to) ?? (canEveryone ? undefined : allowed[0]);
   const nameOf = (id: string) => state.remotes.find((r) => r.id === id)?.name ?? "someone who left";
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -99,8 +105,8 @@ export function ChatPanel({ meeting, state, to, setTo, onClose }: { meeting: Mee
         <label className="flex items-center gap-2 text-xs text-ink-2">
           To:
           <select className={`h-7 rounded-lg border border-line bg-raise px-2 text-xs outline-none ${recipient ? "text-warn" : "text-ink"}`} value={recipient?.id ?? ""} onChange={(e) => setTo(e.target.value)} id="chat-to">
-            <option value="">Everyone</option>
-            {state.remotes.map((r) => (
+            {canEveryone && <option value="">Everyone</option>}
+            {allowed.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name} (privately)
               </option>
@@ -108,8 +114,16 @@ export function ChatPanel({ meeting, state, to, setTo, onClose }: { meeting: Mee
           </select>
         </label>
         <div className="flex gap-2">
-          <input className="input h-11" placeholder={recipient ? `Message ${recipient.name} privately` : "Message everyone"} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} id="chat-input" />
-          <button className="btn btn-primary h-11 w-11 shrink-0 p-0" disabled={!text.trim()} aria-label="Send">
+          <input
+            className="input h-11"
+            placeholder={muted ? "The host has turned off chat" : recipient ? `Message ${recipient.name} privately` : "Message everyone"}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={2000}
+            id="chat-input"
+            disabled={muted || (!canEveryone && !recipient)}
+          />
+          <button className="btn btn-primary h-11 w-11 shrink-0 p-0" disabled={!text.trim() || muted} aria-label="Send">
             <Send size={17} />
           </button>
         </div>
@@ -120,13 +134,17 @@ export function ChatPanel({ meeting, state, to, setTo, onClose }: { meeting: Mee
 
 export function PeoplePanel({ meeting, state, onClose, onCopy, onMessage }: { meeting: Meeting; state: MeetingState; onClose: () => void; onCopy: () => void; onMessage: (id: string) => void }) {
   const host = state.self.host;
+  const owner = host && !state.self.cohost;
+  // With the list hidden, participants see only the hosts and themselves.
+  const hidden = state.settings.hideList && !host;
   const people = [
     { ...state.self, id: "self", self: true, conn: "connected" },
-    ...state.remotes.map((r) => ({ ...r, self: false })),
+    ...state.remotes.filter((r) => !hidden || r.host).map((r) => ({ ...r, self: false })),
   ].sort((a, b) => Number(b.hand) - Number(a.hand));
+  const count = state.settings.hideCount && !host ? "" : ` (${state.remotes.length + 1})`;
 
   return (
-    <Panel title={`People (${people.length})`} onClose={onClose}>
+    <Panel title={`People${count}`} onClose={onClose}>
       <div className="scroll-thin flex-1 overflow-y-auto px-2 pb-3">
         <button className="btn mx-2 mb-3 w-[calc(100%-1rem)]" onClick={onCopy}>
           <Link2 size={16} /> Copy invite link
@@ -145,7 +163,10 @@ export function PeoplePanel({ meeting, state, onClose, onCopy, onMessage }: { me
             {state.waiting.map((w) => (
               <div key={w.id} className="flex items-center gap-3 rounded-lg px-2 py-2">
                 <Avatar name={w.name} size={32} />
-                <span className="flex-1 truncate text-sm">{w.name}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{w.name}</span>
+                  {w.email && <span className="block truncate text-xs text-muted">{w.email}</span>}
+                </span>
                 <button className="btn h-8 px-3 text-xs" onClick={() => meeting.deny(w.id)}>
                   Deny
                 </button>
@@ -158,6 +179,11 @@ export function PeoplePanel({ meeting, state, onClose, onCopy, onMessage }: { me
         )}
 
         <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted">In the meeting</div>
+        {hidden && (
+          <p className="mx-2 mb-2 flex items-center gap-2 rounded-lg bg-raise px-3 py-2 text-xs text-ink-2">
+            <EyeOff size={14} /> The host has hidden the participant list.
+          </p>
+        )}
         {people.map((p) => (
           <div key={p.id} className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-raise">
             <Avatar name={p.name} size={32} />
@@ -166,8 +192,32 @@ export function PeoplePanel({ meeting, state, onClose, onCopy, onMessage }: { me
                 {p.name}
                 {p.self && <span className="text-muted"> (you)</span>}
               </div>
-              <div className="text-xs text-muted">{[p.host && "Host", !p.self && p.conn !== "connected" && "Connecting…"].filter(Boolean).join(" · ")}</div>
+              <div className="text-xs text-muted">{[p.host && (p.cohost ? "Co-host" : "Host"), !p.self && p.conn !== "connected" && "Connecting…"].filter(Boolean).join(" · ")}</div>
+              {host && !p.self && (p.email || p.phone) && (
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-ink-2" data-contact>
+                  {p.email && (
+                    <span className="flex items-center gap-1">
+                      <Mail size={11} /> {p.email}
+                    </span>
+                  )}
+                  {p.phone && (
+                    <span className="flex items-center gap-1">
+                      <Phone size={11} /> {p.phone}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
+            {owner && !p.self && (!p.host || p.cohost) && (
+              <button
+                className={`grid h-7 w-7 place-items-center rounded-full hover:bg-raise group-hover:opacity-100 ${p.cohost ? "text-warn" : "text-muted opacity-0 hover:text-ink"}`}
+                onClick={() => meeting.makeCohost(p.id, !p.cohost)}
+                aria-label={p.cohost ? `Remove ${p.name} as co-host` : `Make ${p.name} a co-host`}
+                title={p.cohost ? "Remove co-host" : "Make co-host"}
+              >
+                <Crown size={14} />
+              </button>
+            )}
             {p.hand && (
               <button
                 className="text-warn"
@@ -258,5 +308,98 @@ function Toggle({ label, hint, checked, onChange }: { label: ReactNode; hint: st
         <span className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all" style={{ left: checked ? 22 : 2 }} />
       </button>
     </label>
+  );
+}
+
+export function PollsPanel({ meeting, state, onClose }: { meeting: Meeting; state: MeetingState; onClose: () => void }) {
+  const [question, setQuestion] = useState("");
+  const [options, setOptions] = useState(["", ""]);
+  const host = state.self.host;
+  return (
+    <Panel title="Polls" onClose={onClose}>
+      <div className="scroll-thin flex-1 space-y-3 overflow-y-auto px-4 pb-3">
+        {!state.polls.length && !host && <p className="mt-6 text-center text-sm text-muted">When the host starts a poll, it shows up here.</p>}
+        {[...state.polls].reverse().map((p) => {
+          const total = p.counts.reduce((a, b) => a + b, 0);
+          const showResults = p.mine || p.closed;
+          return (
+            <section key={p.id} className="rounded-xl border border-line p-3" data-poll={p.id}>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="text-sm font-semibold">{p.question}</h3>
+                {p.closed ? <span className="shrink-0 rounded bg-raise px-1.5 text-[10px] uppercase text-muted">Ended</span> : <span className="shrink-0 rounded bg-good/15 px-1.5 text-[10px] uppercase text-good">Live</span>}
+              </div>
+              <div className="mt-2 space-y-1.5">
+                {p.options.map((o, i) => {
+                  const pct = total ? Math.round((p.counts[i] / total) * 100) : 0;
+                  return (
+                    <button
+                      key={i}
+                      disabled={p.closed}
+                      onClick={() => meeting.vote(p.id, i)}
+                      className={`relative w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-sm transition-colors ${p.voted === i ? "border-accent" : "border-line hover:border-accent/50"}`}
+                    >
+                      {showResults && <span className="absolute inset-y-0 left-0 bg-accent/20 transition-all" style={{ width: `${pct}%` }} />}
+                      <span className="relative flex justify-between gap-2">
+                        <span>{o}</span>
+                        {showResults && (
+                          <span className="tabular-nums text-ink-2">
+                            {pct}% · {p.counts[i]}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs text-muted">
+                <span>{showResults ? `${total} vote${total === 1 ? "" : "s"}` : p.voted !== null ? "Vote sent. Results appear when the poll ends." : "Choose one"}</span>
+                {p.mine && !p.closed && (
+                  <button className="btn h-7 px-3 text-xs" onClick={() => meeting.closePoll(p.id)} id="poll-end">
+                    End poll and share results
+                  </button>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      {host && (
+        <form
+          className="space-y-2 border-t border-line p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            meeting.createPoll(question, options);
+            setQuestion("");
+            setOptions(["", ""]);
+          }}
+        >
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            <BarChart3 size={14} /> New poll
+          </div>
+          <input className="input h-10 text-sm" placeholder="Ask a question" value={question} maxLength={300} onChange={(e) => setQuestion(e.target.value)} id="poll-question" />
+          {options.map((o, i) => (
+            <input
+              key={i}
+              className="input h-9 text-sm"
+              placeholder={`Option ${i + 1}`}
+              value={o}
+              maxLength={120}
+              onChange={(e) => setOptions(options.map((x, j) => (j === i ? e.target.value : x)))}
+              data-poll-option={i}
+            />
+          ))}
+          <div className="flex gap-2">
+            {options.length < 6 && (
+              <button type="button" className="btn h-9 text-xs" onClick={() => setOptions([...options, ""])}>
+                <Plus size={14} /> Option
+              </button>
+            )}
+            <button className="btn btn-primary h-9 flex-1 text-sm" disabled={!question.trim() || options.filter((o) => o.trim()).length < 2} id="poll-launch">
+              Launch poll
+            </button>
+          </div>
+        </form>
+      )}
+    </Panel>
   );
 }

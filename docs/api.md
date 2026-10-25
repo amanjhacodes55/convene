@@ -137,6 +137,22 @@ Meeting IDs are the codes in meeting links, such as `kfa-wqpz-tnu`. Times are IS
 
 `status` is `waiting` (nobody has joined yet), `started` or `ended`.
 
+Meeting options, all optional when creating or updating:
+
+| Field | Values |
+| --- | --- |
+| `passcode` | Up to 10 letters and digits, or `null`. It is added to `join_url` as `?pwd=` |
+| `settings.waiting_room`, `settings.locked` | `true` / `false` |
+| `settings.require_sign_in` | Only people signed in to a Convene account can join |
+| `settings.registration` | `null`, or `{ "approval": "auto" \| "manual", "require_phone": true }`. The meeting then has a `registration_url` |
+| `settings.hide_participant_count`, `settings.hide_participant_list` | Hide them from participants (hosts always see both) |
+| `settings.chat` | `everyone`, `host` (participants may chat only with hosts) or `off` |
+| `settings.screen_share` | `everyone` or `host` |
+| `settings.mute_on_entry`, `settings.allow_unmute` | Mute people as they join; whether they may unmute themselves |
+
+Participant and attendance records include `email` and `phone` when they are known: for registrants, and for
+people signed in to an account.
+
 | Method and path | Scope | Does |
 | --- | --- | --- |
 | `GET /api/v1/users/me` | `user:read` | The account the token acts for |
@@ -148,6 +164,9 @@ Meeting IDs are the codes in meeting links, such as `kfa-wqpz-tnu`. Times are IS
 | `POST /api/v1/meetings/{id}/end` | `meeting:write` | End a live meeting for everyone |
 | `GET /api/v1/meetings/{id}/participants` | `participant:read` | `{ participants, waiting }`: who is in the meeting and its waiting room now |
 | `GET /api/v1/meetings/{id}/report` | `meeting:read` | Attendance: each person's `joined_at`, `left_at`, `duration` (seconds) and `reason` (`left`, `removed`, `ended`) |
+| `GET /api/v1/meetings/{id}/registrants` | `meeting:read` | Registrants with `name`, `email`, `phone` and `status` (`approved`, `pending`, `denied`) |
+| `POST /api/v1/meetings/{id}/registrants` | `meeting:write` | Register someone (approved at once); the response has their personal `join_url` |
+| `PATCH /api/v1/meetings/{id}/registrants/{registrantId}` | `meeting:write` | `{ "status": "approved" \| "denied" }` |
 | `POST /api/v1/meetings/{id}/messages` | `chat:write` | Post `{ "text": "…" }` into the live meeting's chat, labelled with your app's name (201). 409 if nobody is in it |
 
 The API sends `Access-Control-Allow-Origin: *` and never reads cookies, so it can be called from a browser

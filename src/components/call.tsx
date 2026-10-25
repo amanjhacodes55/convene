@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BarChart3,
   Captions,
   Check,
   ChevronDown,
@@ -30,17 +31,18 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Meeting, MeetingState } from "@/client/meeting";
+import type { Meeting, MeetingState, Settings as RoomSettings } from "@/client/meeting";
 import { Recorder } from "@/client/recorder";
 import { listDevices } from "./lobby";
-import { ChatPanel, PeoplePanel } from "./panels";
+import { ChatPanel, PeoplePanel, PollsPanel } from "./panels";
 import { Tile, type TileAction, type TileProps } from "./tile";
 import { Avatar } from "./ui";
 
 const EMOJI = ["👍", "❤️", "😂", "😮", "👏", "🎉"];
 
 type Layout = "grid" | "speaker";
-type Menu = "react" | "more" | "leave" | "mic" | "cam" | "info" | "view" | null;
+type Menu = "react" | "more" | "leave" | "mic" | "cam" | "info" | "view" | "security" | null;
+type PanelName = "chat" | "people" | "polls";
 type Devices = Awaited<ReturnType<typeof listDevices>>;
 
 const readPref = (k: string) => {
@@ -57,7 +59,7 @@ const writePref = (k: string, v: string) => {
 };
 
 export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState }) {
-  const [panel, setPanel] = useState<"chat" | "people" | null>(null);
+  const [panel, setPanel] = useState<PanelName | null>(null);
   const [layout, setLayout] = useState<Layout>("grid");
   const [pin, setPinned] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu>(null);
@@ -76,7 +78,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
   // Chat counts as read while the panel is open, and up to the moment it closes.
   const received = state.chat.filter((m) => m.from !== "self").length;
   const unread = panel === "chat" ? 0 : received - seenChat;
-  const showPanel = (next: "chat" | "people" | null) => {
+  const showPanel = (next: PanelName | null) => {
     if (panel === "chat" || next === "chat") setSeenChat(received);
     setPanel(next);
   };
@@ -137,7 +139,8 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
     Object.assign(t, { pinned: pinned === t.id, spotlit: spotlight === t.id, actions });
   }
 
-  const presenter = [...remotes].reverse().find((r) => r.sharing);
+  // With sharing limited to hosts, a participant's share is ignored even if their browser sends it.
+  const presenter = [...remotes].reverse().find((r) => r.sharing && (r.host || state.settings.share === "everyone"));
   const visible = hideSelf && tiles.length > 1 ? tiles.filter((t) => t.id !== "self") : tiles;
 
   // What fills the stage: someone's screen, the spotlit, pinned or speaking person, or a grid.
@@ -357,7 +360,11 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
             {panel === "chat" ? (
               <ChatPanel meeting={meeting} state={state} to={chatTo} setTo={setChatTo} onClose={() => showPanel(null)} />
             ) : (
-              <PeoplePanel meeting={meeting} state={state} onClose={() => showPanel(null)} onCopy={copyLink} onMessage={(id) => (setChatTo(id), showPanel("chat"))} />
+              panel === "people" ? (
+                <PeoplePanel meeting={meeting} state={state} onClose={() => showPanel(null)} onCopy={copyLink} onMessage={(id) => (setChatTo(id), showPanel("chat"))} />
+              ) : (
+                <PollsPanel meeting={meeting} state={state} onClose={() => showPanel(null)} />
+              )
             )}
           </div>
         )}
@@ -444,17 +451,47 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
         {/* No overflow scrolling here: it would clip the React and More popovers. Narrow screens drop
             Record, Captions and Raise hand from the bar; they stay reachable from More and React. */}
         <div className="mx-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
-          <Control label="Participants" on={panel === "people"} badge={self.host ? state.waiting.length : 0} count={remotes.length + 1} onClick={() => showPanel(panel === "people" ? null : "people")} id="ctl-people" title="Participants (P)">
+          {self.host && (
+            <div className="relative">
+              <Control label="Security" on={menu === "security"} onClick={() => setMenu(menu === "security" ? null : "security")} id="ctl-security" title="Security">
+                <ShieldCheck size={20} />
+              </Control>
+              {menu === "security" && (
+                <Popover align="left" offset={-40}>
+                  <SecurityMenu settings={state.settings} set={(patch) => void meeting.updateSettings(patch)} />
+                </Popover>
+              )}
+            </div>
+          )}
+          <Control
+            label="Participants"
+            on={panel === "people"}
+            badge={self.host ? state.waiting.length : 0}
+            count={state.settings.hideCount && !self.host ? 0 : remotes.length + 1}
+            onClick={() => showPanel(panel === "people" ? null : "people")}
+            id="ctl-people"
+            title="Participants (P)"
+          >
             <Users size={20} />
           </Control>
           <Control label="Chat" on={panel === "chat"} badge={unread} onClick={() => showPanel(panel === "chat" ? null : "chat")} id="ctl-chat" title="Chat (C)">
             <MessageSquare size={20} />
           </Control>
-          <Control label={self.sharing ? "Stop share" : "Share"} share onClick={() => void toggleShare()} id="ctl-share" on={self.sharing}>
+          <Control
+            label={self.sharing ? "Stop share" : "Share"}
+            share={self.host || state.settings.share === "everyone"}
+            onClick={() => void toggleShare()}
+            id="ctl-share"
+            on={self.sharing}
+            title={self.host || state.settings.share === "everyone" ? "Share screen" : "Only the host can share"}
+          >
             {self.sharing ? <MonitorX size={20} /> : <MonitorUp size={20} />}
           </Control>
           <Control label={self.recording ? "Stop rec." : "Record"} onClick={() => void toggleRecording()} id="ctl-record" rec={self.recording} title="Record to this computer" wide>
             {self.recording ? <Square size={17} fill="currentColor" /> : <Radio size={20} />}
+          </Control>
+          <Control label="Polls" on={panel === "polls"} badge={state.polls.filter((p) => !p.mine && p.voted === null && !p.closed).length} onClick={() => showPanel(panel === "polls" ? null : "polls")} id="ctl-polls" wide>
+            <BarChart3 size={20} />
           </Control>
           <Control label="Captions" on={self.cc} onClick={() => meeting.toggleCaptions()} id="ctl-cc" title={state.captionsUnavailable ? "Live captions need Chrome or Edge" : "Live captions"} wide>
             <Captions size={20} />
@@ -631,6 +668,32 @@ function Split(p: { label: string; children: ReactNode; onClick: () => void; onM
         </button>
       </span>
       <span className="hidden sm:block">{p.label}</span>
+    </div>
+  );
+}
+
+/** The host's Security menu, as in Zoom: lock, waiting room, and what participants may do. */
+function SecurityMenu({ settings, set }: { settings: RoomSettings; set: (patch: Partial<RoomSettings>) => void }) {
+  const item = (label: string, on: boolean, patch: Partial<RoomSettings>, id: string) => (
+    <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-sm hover:bg-raise" onClick={() => set(patch)} id={id} role="menuitemcheckbox" aria-checked={on}>
+      {on ? <Check size={15} className="shrink-0 text-accent-ink" /> : <span className="w-[15px] shrink-0" />}
+      {label}
+    </button>
+  );
+  const head = (t: string) => <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">{t}</div>;
+  return (
+    <div className="w-72 p-1" role="menu">
+      {item("Lock meeting", settings.locked, { locked: !settings.locked }, "sec-lock")}
+      {item("Enable waiting room", settings.waitingRoom, { waitingRoom: !settings.waitingRoom }, "sec-waiting")}
+      {item("Hide participant count", settings.hideCount, { hideCount: !settings.hideCount }, "sec-hide-count")}
+      {item("Hide participant list", settings.hideList, { hideList: !settings.hideList }, "sec-hide-list")}
+      {head("Allow participants to")}
+      {item("Share their screen", settings.share === "everyone", { share: settings.share === "everyone" ? "host" : "everyone" }, "sec-share")}
+      {item("Chat with everyone", settings.chat === "everyone", { chat: "everyone" }, "sec-chat-all")}
+      {item("Chat with the host only", settings.chat === "host", { chat: "host" }, "sec-chat-host")}
+      {item("Chat: off", settings.chat === "off", { chat: "off" }, "sec-chat-off")}
+      {item("Unmute themselves", settings.allowUnmute, { allowUnmute: !settings.allowUnmute }, "sec-unmute")}
+      {item("Join muted", settings.muteOnEntry, { muteOnEntry: !settings.muteOnEntry }, "sec-mute-entry")}
     </div>
   );
 }

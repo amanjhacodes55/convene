@@ -9,7 +9,7 @@ import { kv } from "./store";
 //
 // Keys:
 //   users/<id>                 the account
-//   emails/<email>             { id }, so an email maps to one account
+//   emails/<sha256(email)>     { id }, so an email maps to one account
 //   sessions/<sha256(token)>   a signed-in browser
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
@@ -22,7 +22,8 @@ export const SESSION_DAYS = 30;
 
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const userKey = (id: string) => `users/${id}`;
-const emailKey = (email: string) => `emails/${email}`;
+// Hashed: Netlify Blobs hangs on keys with "@" in them, and it keeps addresses out of key listings.
+const emailKey = (email: string) => `emails/${sha256(email)}`;
 const sessionKey = (token: string) => `sessions/${sha256(token)}`;
 
 export const publicUser = (u: User): PublicUser => ({ id: u.id, email: u.email, name: u.name, createdAt: u.createdAt });

@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { isCode } from "@/lib/codes";
 import { Meeting } from "@/client/meeting";
 import { Call } from "./call";
-import { Lobby, type RoomInfo } from "./lobby";
+import { Lobby, type Credentials, type RoomInfo } from "./lobby";
 import { Avatar, Logo, Screen } from "./ui";
 
 /**
@@ -24,6 +24,18 @@ const hostKeyFor = (code: string) => {
     return fromLink;
   }
 };
+
+/** A passcode from the invite link (?pwd=) and a personal registration token (?r=, or saved here). */
+function credentialsFor(code: string): Credentials {
+  const q = new URLSearchParams(location.search);
+  const key = `convene:reg:${code}`;
+  let registration = q.get("r") ?? undefined;
+  try {
+    if (registration) localStorage.setItem(key, registration);
+    else registration = localStorage.getItem(key) ?? undefined;
+  } catch {}
+  return { passcode: q.get("pwd") ?? undefined, registration };
+}
 
 const noop = () => () => {};
 
@@ -46,6 +58,7 @@ export function Room({ code }: { code: string }) {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   // Read once; the page renders "Loading…" on the server, so there is nothing to hydrate against.
   const [hostKey] = useState(() => hostKeyFor(code));
+  const [credentials] = useState(() => credentialsFor(code));
 
   useEffect(() => {
     fetch(`/api/rooms/${code}`)
@@ -69,8 +82,9 @@ export function Room({ code }: { code: string }) {
       <Lobby
         info={info}
         isHost={Boolean(hostKey) || info.owner}
-        onJoin={(stream, name) => {
-          const m = new Meeting(code, name, stream, hostKey);
+        credentials={credentials}
+        onJoin={(stream, name, creds) => {
+          const m = new Meeting(code, name, stream, hostKey, creds);
           setMeeting(m);
           void m.join();
         }}

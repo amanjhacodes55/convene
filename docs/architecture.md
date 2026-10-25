@@ -57,7 +57,7 @@ flowchart LR
 | `rooms/<code>/peers/<id>` | A participant and their hashed token |
 | `rooms/<code>/inbox/<to>/…` | Signalling and server messages for one participant |
 | `rooms/<code>/attendance/<id>` | When someone joined and left |
-| `users/<id>`, `emails/<email>`, `sessions/<hash>` | Accounts and sessions |
+| `users/<id>`, `emails/<sha256(email)>`, `sessions/<hash>` | Accounts and sessions |
 | `users/<id>/meetings/<code>`, `users/<id>/apps/<id>`, `users/<id>/grants/<appId>` | An account's indexes |
 | `apps/<id>`, `clients/<client_id>` | Apps |
 | `oauth/codes/<hash>`, `oauth/tokens/<hash>` | Authorization codes, access and refresh tokens |

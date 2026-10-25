@@ -90,9 +90,10 @@ try {
     await page.click('[data-endpoint="create-meeting"]');
     await page.click("#pg-send");
     await page.locator("#pg-status").getByText("201").waitFor();
-    code = await page.evaluate(async () => (await (await fetch("/api/meetings")).json()).meetings[0].id);
+    // The example body turns on registration; the next step needs a meeting anyone can walk into.
+    code = await page.evaluate(async () => (await (await fetch("/api/meetings", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"topic":"Open sync"}' })).json()).code);
     await page.click("#tab-webhooks");
-    await page.locator("#deliveries").getByText("meeting.created").waitFor({ timeout: 15_000 });
+    await page.locator("#deliveries").getByText("meeting.created").first().waitFor({ timeout: 15_000 });
   });
 
   await step("an app message appears in the live meeting's chat", async () => {

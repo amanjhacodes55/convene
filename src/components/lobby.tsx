@@ -6,7 +6,20 @@ import { call, type Me } from "@/client/fetch";
 import { audioConstraints, videoConstraints } from "@/client/meeting";
 import { Avatar, Logo } from "./ui";
 
-export type RoomInfo = { code: string; title: string; locked: boolean; waitingRoom: boolean; ended: boolean; scheduledFor: number | null; owner: boolean };
+export type RoomInfo = {
+  code: string;
+  title: string;
+  locked: boolean;
+  waitingRoom: boolean;
+  ended: boolean;
+  scheduledFor: number | null;
+  owner: boolean;
+  passcode: boolean;
+  requireSignIn: boolean;
+  registration: { requirePhone: boolean } | null;
+};
+
+export type Credentials = { passcode?: string; registration?: string };
 
 type Devices = { audioinput: MediaDeviceInfo[]; videoinput: MediaDeviceInfo[]; audiooutput: MediaDeviceInfo[] };
 
@@ -30,7 +43,7 @@ export async function listDevices(): Promise<Devices> {
 }
 
 /** Lets someone check their camera and microphone and pick a name before going in. */
-export function Lobby({ info, isHost, onJoin }: { info: RoomInfo; isHost: boolean; onJoin: (stream: MediaStream, name: string) => void }) {
+export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; isHost: boolean; credentials: Credentials; onJoin: (stream: MediaStream, name: string, credentials: Credentials) => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const [stream] = useState(() => new MediaStream());
   const [name, setName] = useState(() => read("convene:name"));
@@ -47,14 +60,36 @@ export function Lobby({ info, isHost, onJoin }: { info: RoomInfo; isHost: boolea
   const [ready, setReady] = useState(false);
   const handedOff = useRef(false);
 
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [passcode, setPasscode] = useState(credentials.passcode ?? "");
+  const [registrant, setRegistrant] = useState<{ name: string; email: string; status: string } | null>(null);
+
   // Signed in with no name saved here yet: use the account's name.
   useEffect(() => {
-    if (read("convene:name")) return;
     call<{ user: Me | null }>("/api/auth/me").then(
-      (r) => r.user && setName((n) => n || r.user!.name),
-      () => {},
+      (r) => {
+        setMe(r.user);
+        if (r.user && !read("convene:name")) setName((n) => n || r.user!.name);
+      },
+      () => setMe(null),
     );
   }, []);
+
+  // A personal registration link: show who it belongs to, and use their registered name.
+  useEffect(() => {
+    if (!info.registration || !credentials.registration) return;
+    call<{ name: string; email: string; status: string }>(`/api/rooms/${info.code}/register?token=${encodeURIComponent(credentials.registration)}`).then(
+      (r) => {
+        setRegistrant(r);
+        setName(r.name);
+      },
+      () => setRegistrant(null),
+    );
+  }, [info.code, info.registration, credentials.registration]);
+
+  // What this meeting still needs from a guest before they can join.
+  const needsSignIn = !isHost && info.requireSignIn && me === null;
+  const needsRegistration = !isHost && Boolean(info.registration) && !credentials.registration;
 
   // Ask for both devices once; fall back to whatever is available.
   useEffect(() => {
@@ -157,9 +192,10 @@ export function Lobby({ info, isHost, onJoin }: { info: RoomInfo; isHost: boolea
     if (!ready) return;
     const clean = name.trim();
     if (!clean) return setError("Enter your name so others know who you are.");
+    if (!isHost && info.passcode && !passcode.trim()) return setError("Enter the meeting passcode.");
     write("convene:name", clean);
     handedOff.current = true;
-    onJoin(stream, clean);
+    onJoin(stream, clean, { passcode: passcode.trim() || undefined, registration: credentials.registration });
   }
 
   return (
@@ -236,26 +272,71 @@ export function Lobby({ info, isHost, onJoin }: { info: RoomInfo; isHost: boolea
               {new Date(info.scheduledFor).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             </p>
           )}
-          <label className="mt-8 block text-sm font-medium text-ink-2" htmlFor="name">
-            Your name
-          </label>
-          <input
-            id="name"
-            className="input mt-2"
-            value={name}
-            maxLength={40}
-            placeholder="e.g. Maya Chen"
-            autoFocus
-            onChange={(e) => {
-              setName(e.target.value);
-              setError("");
-            }}
-            onKeyDown={(e) => e.key === "Enter" && join()}
-          />
-          {error && <p className="mt-2 text-sm text-danger">{error}</p>}
-          <button className="btn btn-primary mt-5 h-12 w-full text-base" onClick={join} id="join" disabled={!ready}>
-            {!ready ? "Starting camera…" : info.waitingRoom && !isHost ? "Ask to join" : "Join now"}
-          </button>
+          {needsSignIn ? (
+            <div className="mt-8 rounded-2xl border border-line bg-panel p-5" id="gate-signin">
+              <p className="font-medium">This meeting is for signed-in users</p>
+              <p className="mt-1 text-sm text-ink-2">The host asks everyone to sign in, so they know who joined.</p>
+              <a className="btn btn-primary mt-4 w-full" href={`/signin?next=${encodeURIComponent(`/m/${info.code}`)}`}>
+                Sign in to join
+              </a>
+            </div>
+          ) : needsRegistration ? (
+            <div className="mt-8 rounded-2xl border border-line bg-panel p-5" id="gate-register">
+              <p className="font-medium">Registration required</p>
+              <p className="mt-1 text-sm text-ink-2">Register with your details, then join with your personal link.</p>
+              <a className="btn btn-primary mt-4 w-full" href={`/r/${info.code}`} id="go-register">
+                Register for this meeting
+              </a>
+            </div>
+          ) : (
+            <>
+              {registrant && (
+                <p className="mt-6 rounded-xl bg-good/10 px-3 py-2 text-sm text-ink-2">
+                  Registered as <span className="text-ink">{registrant.email}</span>
+                  {registrant.status === "pending" && <span className="text-warn"> · waiting for the host to approve you</span>}
+                </p>
+              )}
+              <label className="mt-8 block text-sm font-medium text-ink-2" htmlFor="name">
+                Your name
+              </label>
+              <input
+                id="name"
+                className="input mt-2"
+                value={name}
+                maxLength={40}
+                placeholder="e.g. Maya Chen"
+                autoFocus
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError("");
+                }}
+                onKeyDown={(e) => e.key === "Enter" && join()}
+              />
+              {!isHost && info.passcode && (
+                <>
+                  <label className="mt-4 block text-sm font-medium text-ink-2" htmlFor="passcode">
+                    Meeting passcode
+                  </label>
+                  <input
+                    id="passcode"
+                    className="input mt-2 font-mono tracking-widest"
+                    value={passcode}
+                    maxLength={10}
+                    placeholder="From your invitation"
+                    onChange={(e) => {
+                      setPasscode(e.target.value);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && join()}
+                  />
+                </>
+              )}
+              {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+              <button className="btn btn-primary mt-5 h-12 w-full text-base" onClick={join} id="join" disabled={!ready}>
+                {!ready ? "Starting camera…" : info.waitingRoom && !isHost ? "Ask to join" : "Join now"}
+              </button>
+            </>
+          )}
           {info.locked && !isHost && <p className="mt-3 text-sm text-warn">The host has locked this meeting, so new people can&apos;t join right now.</p>}
           {info.waitingRoom && !isHost && <p className="mt-3 text-sm text-ink-2">The host will let you in.</p>}
         </div>

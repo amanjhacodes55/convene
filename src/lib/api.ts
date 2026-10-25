@@ -1,7 +1,7 @@
 import { getUser, publicUser, type User } from "./accounts";
 import { RoomError } from "./errors";
 import { getApp, bearer, type Caller, type Scope } from "./oauth";
-import type { RoomPatch } from "./rooms";
+import { cleanControls, type RoomPatch } from "./rooms";
 
 // The public REST API (/api/v1): Bearer tokens, scopes, and errors shaped as
 //   { "error": { "code": "...", "message": "..." } }
@@ -79,6 +79,30 @@ export function meetingInput(b: Record<string, unknown>, partial = false): RoomP
   if (wr !== undefined) {
     if (typeof wr !== "boolean") throw new RoomError(400, "settings.waiting_room must be true or false.");
     out.waitingRoom = wr;
+  }
+  // Zoom-style options. Accepts the API's snake_case names.
+  const controls: Record<string, unknown> = {};
+  const map = { hide_participant_count: "hideCount", hide_participant_list: "hideList", allow_unmute: "allowUnmute", mute_on_entry: "muteOnEntry", chat: "chat", screen_share: "share" } as const;
+  for (const [from, to] of Object.entries(map)) if (settings[from] !== undefined) controls[to] = settings[from];
+  const cleaned = cleanControls(controls);
+  if (Object.keys(cleaned).length !== Object.keys(controls).length) throw new RoomError(400, "Check settings: chat is everyone|host|off, screen_share is everyone|host, the rest are true or false.");
+  if (Object.keys(cleaned).length) out.controls = cleaned;
+  const pass = b.passcode ?? settings.passcode;
+  if (pass !== undefined) {
+    if (pass !== null && (typeof pass !== "string" || !/^[A-Za-z0-9]{0,10}$/.test(pass))) throw new RoomError(400, "passcode is up to 10 letters and digits.");
+    out.passcode = (pass as string | null) || null;
+  }
+  if (settings.require_sign_in !== undefined) {
+    if (typeof settings.require_sign_in !== "boolean") throw new RoomError(400, "settings.require_sign_in must be true or false.");
+    out.requireSignIn = settings.require_sign_in;
+  }
+  const reg = settings.registration;
+  if (reg !== undefined) {
+    if (reg === null || reg === false) out.registration = null;
+    else if (typeof reg === "object") {
+      const r = reg as Record<string, unknown>;
+      out.registration = { enabled: true, approval: r.approval === "manual" ? "manual" : "auto", requirePhone: r.require_phone === true };
+    } else throw new RoomError(400, "settings.registration is null or { approval: auto|manual, require_phone }.");
   }
   if (partial && settings.locked !== undefined) {
     if (typeof settings.locked !== "boolean") throw new RoomError(400, "settings.locked must be true or false.");

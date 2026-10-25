@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionUser, signIn, signUp } from "@/lib/accounts";
 import { meetingInput } from "@/lib/api";
 import { approve, bearer, checkAuthorize, createApp, deleteApp, revokeGrant, token, updateApp } from "@/lib/oauth";
-import { attendance, authenticate, createRoom, hostAction, join, leave, listRooms, liveParticipants, poll, postAppMessage } from "@/lib/rooms";
+import { attendance, authenticate, createRoom, hostAction, join, leave, listRegistrants, listRooms, liveParticipants, poll, postAppMessage, register, registrationStatus, setRegistrant } from "@/lib/rooms";
 import { memoryStore, setStoreForTests } from "@/lib/store";
 import { createBin, readBin, sign, verify } from "@/lib/webhooks";
 
@@ -191,5 +191,50 @@ describe("webhook endpoints", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("zoom-style meeting options", () => {
+  it("checks passcodes and sign-in, but not for the host", async () => {
+    const dev = await developer();
+    const { code, hostKey } = await createRoom({ ownerId: dev.id, passcode: "4821", requireSignIn: true });
+    await expect(join(code, { name: "Eve" }, T)).rejects.toMatchObject({ status: 401 });
+    await expect(join(code, { name: "Eve", userId: "u1", passcode: "0000" }, T)).rejects.toMatchObject({ status: 403 });
+    const ok = await join(code, { name: "Leo", userId: "u1", email: "leo@acme.dev", passcode: "4821" }, T);
+    expect(ok.status).toBe("admitted");
+    expect((await join(code, { name: "Host", hostKey }, T)).peer.host).toBe(true);
+    expect((await liveParticipants(code, T)).participants.find((p) => p.name === "Leo")?.email).toBe("leo@acme.dev");
+  });
+
+  it("registers people, holds them for approval, and records their details", async () => {
+    const dev = await developer();
+    const { code } = await createRoom({ ownerId: dev.id, registration: { enabled: true, approval: "manual", requirePhone: true } });
+    await expect(join(code, { name: "Sam" }, T)).rejects.toMatchObject({ status: 403 });
+    await expect(register(code, { name: "Sam", email: "sam@acme.dev" })).rejects.toMatchObject({ status: 400 });
+    const r = await register(code, { name: "Sam Okafor", email: "Sam@Acme.dev", phone: "+1 555 0100" });
+    expect(r.status).toBe("pending");
+    await expect(join(code, { registration: r.token }, T)).rejects.toThrow(/approval/);
+    await setRegistrant(dev.id, code, r.id, "approved");
+    expect((await registrationStatus(code, r.token)).status).toBe("approved");
+    const j = await join(code, { registration: r.token }, T);
+    expect(j.peer.name).toBe("Sam Okafor");
+    expect((await attendance(code, T)).map((a) => [a.email, a.phone])).toEqual([["sam@acme.dev", "+1 555 0100"]]);
+    expect((await listRegistrants(dev.id, code)).length).toBe(1);
+    await expect(listRegistrants("someone-else", code)).rejects.toMatchObject({ status: 404 });
+    await expect(join(code, { registration: `${r.id}.forged` }, T)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("lets the host change controls and promote a co-host, who can't end the meeting", async () => {
+    const { code, hostKey } = await createRoom({});
+    const h = await join(code, { name: "Host", hostKey }, T);
+    const g = await join(code, { name: "Guest" }, T);
+    const host = await authenticate(code, h.peer.id, h.token);
+    await hostAction(code, host, { action: "settings", hideList: true, chat: "host", share: "host" }, T);
+    const { messages } = await poll(code, await authenticate(code, g.peer.id, g.token), undefined, T);
+    expect(messages.find((m) => m.type === "settings")?.data).toMatchObject({ hideList: true, chat: "host", share: "host", allowUnmute: true });
+    await hostAction(code, host, { action: "cohost", target: g.peer.id, on: true }, T);
+    const co = await authenticate(code, g.peer.id, g.token);
+    expect(co.host && co.cohost).toBe(true);
+    await expect(hostAction(code, co, { action: "end" }, T)).rejects.toMatchObject({ status: 403 });
   });
 });

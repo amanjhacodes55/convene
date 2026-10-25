@@ -711,6 +711,7 @@ function Playground({ app, goScopes }: { app: DevApp; goScopes: () => void }) {
   const ep = ENDPOINTS.find((e) => e.id === endpointId)!;
   const { data: mine } = useResource<{ meetings: ApiMeeting[] }>("/api/meetings");
   const [meetingId, setMeetingId] = useState("");
+  const [registrantId, setRegistrantId] = useState("");
   const [query, setQuery] = useState(ENDPOINTS[1].query ?? "");
   const [body, setBody] = useState("");
   const [tok, setTok] = useState<{ token: string; exp: number } | null>(null);
@@ -726,7 +727,7 @@ function Playground({ app, goScopes }: { app: DevApp; goScopes: () => void }) {
 
   const meetings = mine?.meetings ?? [];
   const chosenMeeting = meetingId || meetings.find((m) => m.status === "started")?.id || meetings[0]?.id || "";
-  const path = ep.path.replace("{meetingId}", chosenMeeting || "{meetingId}") + (query && ep.method === "GET" ? `?${query}` : "");
+  const path = ep.path.replace("{meetingId}", chosenMeeting || "{meetingId}").replace("{registrantId}", registrantId || "{registrantId}") + (query && ep.method === "GET" ? `?${query}` : "");
   const allowed = app.scopes.includes(ep.scope);
   const payload = body || (ep.body ? JSON.stringify(ep.body, null, 2) : "");
   const origin = typeof location !== "undefined" ? location.origin : "";
@@ -782,6 +783,11 @@ function Playground({ app, goScopes }: { app: DevApp; goScopes: () => void }) {
                     </option>
                   ))}
                 </select>
+              </Field>
+            )}
+            {ep.path.includes("{registrantId}") && (
+              <Field label="Registrant ID" hint="From List registrants">
+                <input className="input font-mono text-[13px]" value={registrantId} onChange={(e) => setRegistrantId(e.target.value.trim())} />
               </Field>
             )}
             {ep.method === "GET" && ep.query !== undefined && (

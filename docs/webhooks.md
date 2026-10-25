@@ -16,6 +16,9 @@ scope. Set the endpoint and choose events on the app's **Webhooks** tab.
 | `participant.joined` | `participant:read` | Someone joined, or was admitted from the waiting room |
 | `participant.left` | `participant:read` | Someone left or was removed (`participant.reason`) |
 | `participant.waiting` | `participant:read` | Someone is in the waiting room |
+| `meeting.registration_created` | `meeting:read` | Someone registered (`payload.registrant`) |
+| `meeting.registration_approved` | `meeting:read` | The host approved a registration |
+| `meeting.registration_denied` | `meeting:read` | The host declined a registration |
 
 The **Send test event** button sends `endpoint.test`.
 

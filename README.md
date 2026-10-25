@@ -45,6 +45,18 @@ link, and everyone talks in their browser. It is free to use, change and host un
   soft join and leave chimes, and an **Admit** button right in the waiting-room notice.
 - Keyboard: **M** mute, **V** camera, **H** hand, **C** chat, **P** participants, **?** for the list.
 
+### Meeting controls, as in Zoom's paid plans
+
+- **Registration**: attendees register with name, email and phone; approve them automatically or one by
+  one. Each gets a personal join link, and the host can export registrants as CSV.
+- **Passcodes** (included in invitations and links) and **sign-in-only** meetings, so you know who joined.
+- **Attendee tracking**: hosts see each participant's email and phone in the call, and the attendance
+  report records them with join and leave times.
+- **A Security menu** for hosts: lock, waiting room, hide the participant count, hide the participant list
+  (attendees see only the hosts), who may chat (everyone, host only, off), who may share their screen,
+  whether participants may unmute themselves, and muting people as they join.
+- **Co-hosts**, and **polls** with live results that the host shares when the poll ends.
+
 ### With a free account
 
 - **Meetings dashboard**: schedule meetings with a topic, time, duration and agenda; copy a ready-made
@@ -64,7 +76,8 @@ Like the Zoom, Webex and Teams developer platforms, scaled to what a meeting app
   stored only as SHA-256 hashes; removing an app revokes every token it holds.
 - **Scopes**: `user:read`, `meeting:read`, `meeting:write`, `participant:read`, `chat:write`, checked on
   every endpoint (`403 insufficient_scope` otherwise).
-- **Webhooks**: `meeting.created/updated/deleted/started/ended` and `participant.joined/left/waiting`, signed
+- **Webhooks**: `meeting.created/updated/deleted/started/ended`, `participant.joined/left/waiting` and
+  `meeting.registration_created/approved/denied`, signed
   with HMAC-SHA256 (`Convene-Signature: t=…,v1=…`), with a delivery log, redelivery, a test event, and a
   **built-in test inbox** that checks signatures, so you can try webhooks without running a server.
 - **Developer portal**: create apps, manage credentials, redirect URIs, scopes and webhooks, walk through
@@ -153,6 +166,13 @@ host admits them from the notice, a private message reaches only its recipient, 
 everyone, and the host ends the meeting. On the platform: a developer signs up, creates an OAuth app, goes
 through the consent screen, exchanges the code and calls the API, sees signed webhooks arrive in the test
 inbox, creates a meeting from the playground, and posts a message that appears in the live meeting's chat.
+
+## Android app
+
+[`android/`](android/) is a native Android app (Kotlin, Jetpack Compose) for the same server: start, join and
+schedule meetings, see upcoming and past meetings with attendance reports, and share invitations. The call
+runs the web meeting page in a WebView, so everything but screen sharing works as in a browser. See
+[android/README.md](android/README.md) to build it.
 
 ## License
 

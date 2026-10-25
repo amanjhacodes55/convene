@@ -7,8 +7,22 @@
 // Turning the camera off or starting a share only swaps tracks (replaceTrack), so the call never
 // renegotiates after it is set up, and both sides know which incoming track is which by position.
 
-export type PublicPeer = { id: string; name: string; joinedAt: number; host: boolean };
-export type Settings = { locked: boolean; waitingRoom: boolean };
+/** Hosts also get people's email and phone (when known), for follow-up. */
+export type PublicPeer = { id: string; name: string; joinedAt: number; host: boolean; cohost?: boolean; email?: string; phone?: string };
+export type Settings = {
+  locked: boolean;
+  waitingRoom: boolean;
+  hideCount: boolean;
+  hideList: boolean;
+  chat: "everyone" | "host" | "off";
+  share: "everyone" | "host";
+  allowUnmute: boolean;
+  muteOnEntry: boolean;
+};
+export const DEFAULT_SETTINGS: Settings = { locked: false, waitingRoom: false, hideCount: false, hideList: false, chat: "everyone", share: "everyone", allowUnmute: true, muteOnEntry: false };
+
+/** A poll run over the data channel. Votes go to whoever asked; they share the results. */
+export type Poll = { id: string; from: string; question: string; options: string[]; counts: number[]; voted: number | null; closed: boolean; mine: boolean };
 export type Phase = "joining" | "waiting" | "in" | "left" | "denied" | "removed" | "ended" | "error";
 
 /** What each participant shares about themselves over the data channel. `cc`: wants live captions. */
@@ -54,6 +68,7 @@ export type MeetingState = {
   captionsUnavailable: boolean;
   /** The microphone is muted but the user seems to be talking. */
   talkingWhileMuted: boolean;
+  polls: Poll[];
 };
 
 type Link = {
@@ -77,7 +92,10 @@ type Wire =
   | { t: "mute" }
   | { t: "lower-hand" }
   | { t: "spotlight"; id: string | null }
-  | { t: "caption"; text: string };
+  | { t: "caption"; text: string }
+  | { t: "poll"; id: string; question: string; options: string[] }
+  | { t: "vote"; id: string; option: number }
+  | { t: "poll-results"; id: string; counts: number[]; closed: boolean };
 
 type Recognition = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; onerror: ((e: { error: string }) => void) | null };
 const SpeechRecognitionImpl = () => (globalThis as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition }).SpeechRecognition ?? (globalThis as unknown as { webkitSpeechRecognition?: new () => Recognition }).webkitSpeechRecognition;
@@ -122,6 +140,8 @@ export class Meeting {
   private levelTrack: MediaStreamTrack | null = null;
   private loudWhileMuted = 0;
   private pushToTalk = false;
+  /** Poll votes received, by poll and voter, for the polls this user asked. */
+  private votes = new Map<string, Map<string, number>>();
   /** Sound effects for joins, leaves and knocks; off for tests and recordings with ?quiet. */
   sounds = true;
 
@@ -131,6 +151,8 @@ export class Meeting {
     /** Microphone and camera from the lobby; either track may be missing. */
     public local: MediaStream,
     private hostKey: string | null,
+    /** What the meeting asked for in the lobby: a passcode and/or a registration token. */
+    private credentials: { passcode?: string; registration?: string } = {},
   ) {
     const audioOn = local.getAudioTracks().some((t) => t.enabled);
     const camOn = local.getVideoTracks().some((t) => t.readyState === "live");
@@ -143,7 +165,7 @@ export class Meeting {
       self: { id: "", name, joinedAt: 0, host: false, muted: !audioOn, camOff: !camOn, hand: false, sharing: false, recording: false, cc: false },
       remotes: [],
       waiting: [],
-      settings: { locked: false, waitingRoom: false },
+      settings: DEFAULT_SETTINGS,
       chat: [],
       reactions: [],
       notices: [],
@@ -153,6 +175,7 @@ export class Meeting {
       captions: [],
       captionsUnavailable: false,
       talkingWhileMuted: false,
+      polls: [],
     };
   }
 
@@ -221,12 +244,12 @@ export class Meeting {
       this.watchLocalAudio();
       const [config, joined] = await Promise.all([
         fetch("/api/config").then((r) => r.json()),
-        this.api("", { action: "join", name: this.state.self.name, hostKey: this.hostKey }),
+        this.api("", { action: "join", name: this.state.self.name, hostKey: this.hostKey, ...this.credentials }),
       ]);
       this.iceServers = config.iceServers;
       this.token = joined.token;
       this.setSelf({ ...joined.peer });
-      this.set({ title: joined.title, settings: joined.settings, waiting: joined.waiting, phase: joined.status === "admitted" ? "in" : "waiting" });
+      this.set({ title: joined.title, settings: { ...DEFAULT_SETTINGS, ...joined.settings }, waiting: joined.waiting, phase: joined.status === "admitted" ? "in" : "waiting" });
       addEventListener("pagehide", this.beacon);
       if (joined.status === "admitted") this.enter(joined.peers);
       this.timers.push(setInterval(() => this.measure(), 120), setInterval(() => this.checkQuality(), 3000));
@@ -239,6 +262,11 @@ export class Meeting {
   /** Admitted: connect to everyone already here. As the newest participant, this side offers. */
   private enter(peers: PublicPeer[]) {
     this.set({ phase: "in", startedAt: Date.now() });
+    if (this.state.settings.muteOnEntry && !this.state.self.host && !this.state.self.muted) {
+      this.local.getAudioTracks().forEach((t) => (t.enabled = false));
+      this.setSelf({ muted: true });
+      this.notice("The host mutes everyone as they join");
+    }
     for (const p of peers) {
       this.addRemote(p);
       void this.connect(p.id, true);
@@ -343,9 +371,38 @@ export class Meeting {
       case "admitted":
         this.enter((data as { peers: PublicPeer[] }).peers);
         return;
-      case "settings":
-        this.set({ settings: data as Settings });
+      case "settings": {
+        const next = { ...DEFAULT_SETTINGS, ...(data as Partial<Settings>) };
+        const prev = this.state.settings;
+        this.set({ settings: next });
+        if (!this.state.self.host) {
+          if (prev.chat !== next.chat) this.notice(next.chat === "off" ? "The host turned off chat" : next.chat === "host" ? "You can now chat with the host only" : "Chat is open to everyone");
+          if (prev.share !== next.share) this.notice(next.share === "host" ? "Only the host can share their screen now" : "Everyone can share their screen");
+          if (prev.allowUnmute !== next.allowUnmute) this.notice(next.allowUnmute ? "You can unmute yourself again" : "The host has stopped participants unmuting themselves");
+          if (next.share === "host" && this.state.self.sharing) void this.stopShare();
+        }
         return;
+      }
+      case "role": {
+        const { id, host, cohost } = data as { id: string; host: boolean; cohost: boolean };
+        if (id === this.state.self.id) {
+          this.setSelf({ host, cohost });
+          this.notice(host ? "You're now a co-host" : "You're no longer a co-host");
+        } else {
+          this.setRemote(id, { host, cohost });
+          const r = this.state.remotes.find((x) => x.id === id);
+          if (r) this.notice(host ? `${r.name} is now a co-host` : `${r.name} is no longer a co-host`);
+        }
+        return;
+      }
+      case "waiting-list":
+        this.set({ waiting: data as PublicPeer[] });
+        return;
+      case "registered": {
+        const { name, status } = data as { name: string; status: string };
+        this.notice(status === "pending" ? `${name} registered and is waiting for approval` : `${name} registered`);
+        return;
+      }
       case "app-message": {
         const m = data as { id: string; app: string; appId: string; text: string; at: number };
         this.set({ chat: [...this.state.chat, { id: m.id, from: `app:${m.appId}`, name: m.app, text: m.text, at: m.at, app: true }] });
@@ -410,6 +467,11 @@ export class Meeting {
       this.sendTo(id, this.stateMessage());
       // A host tells newcomers who is in the spotlight.
       if (this.state.self.host && this.state.spotlight) this.sendTo(id, { t: "spotlight", id: this.state.spotlight === "self" ? this.state.self.id : this.state.spotlight });
+      // ...and catches them up on polls, including ones asked before their connection was ready.
+      for (const p of this.state.polls.filter((p) => p.mine)) {
+        this.sendTo(id, { t: "poll", id: p.id, question: p.question, options: p.options });
+        if (p.closed) this.sendTo(id, { t: "poll-results", id: p.id, counts: p.counts, closed: true });
+      }
     };
     dc.onmessage = (e) => this.onWire(id, JSON.parse(e.data));
 
@@ -526,6 +588,9 @@ export class Meeting {
       this.setRemote(from, { muted: msg.muted, camOff: msg.camOff, hand: msg.hand, sharing: msg.sharing, recording: msg.recording, cc: Boolean(msg.cc) });
       this.syncCaptions();
     } else if (msg.t === "chat") {
+      // The host's chat rules, applied by everyone who receives a message.
+      const { chat } = this.state.settings;
+      if (!r.host && (chat === "off" || (chat === "host" && !(msg.private && this.state.self.host)))) return;
       const text = String(msg.text).slice(0, 2000);
       this.set({ chat: [...this.state.chat, { id: msg.id, from, name: r.name, text, at: msg.at, to: msg.private ? "self" : undefined }] });
       if (msg.private) this.notice(`${r.name} (privately): ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
@@ -543,12 +608,32 @@ export class Meeting {
       if (id) this.notice(id === "self" ? `${r.name} spotlighted you for everyone` : `${r.name} spotlighted ${this.state.remotes.find((x) => x.id === id)?.name ?? "someone"}`);
     } else if (msg.t === "caption") {
       this.showCaption(from, r.name, String(msg.text).slice(0, 300));
+    } else if (msg.t === "poll" && r.host) {
+      const options = (Array.isArray(msg.options) ? msg.options : []).slice(0, 10).map((o) => String(o).slice(0, 120));
+      if (this.state.polls.some((p) => p.id === msg.id) || options.length < 2) return;
+      this.set({ polls: [...this.state.polls, { id: msg.id, from, question: String(msg.question).slice(0, 300), options, counts: options.map(() => 0), voted: null, closed: false, mine: false }] });
+      this.notice(`${r.name} started a poll`);
+    } else if (msg.t === "vote") {
+      const poll = this.state.polls.find((p) => p.id === msg.id && p.mine && !p.closed);
+      if (!poll || !Number.isInteger(msg.option) || msg.option < 0 || msg.option >= poll.options.length) return;
+      // One vote per person; voting again changes it.
+      const votes = this.votes.get(poll.id) ?? new Map<string, number>();
+      votes.set(from, msg.option);
+      this.votes.set(poll.id, votes);
+      this.tally(poll.id);
+    } else if (msg.t === "poll-results") {
+      const poll = this.state.polls.find((p) => p.id === msg.id && p.from === from);
+      if (poll && Array.isArray(msg.counts)) this.setPoll(poll.id, { counts: msg.counts.map((n) => Number(n) || 0), closed: Boolean(msg.closed) });
     }
   }
 
   // ---- controls -------------------------------------------------------------------------------
 
   toggleMic() {
+    if (this.state.self.muted && !this.state.self.host && !this.state.settings.allowUnmute) {
+      this.notice("The host has turned off unmuting for participants");
+      return;
+    }
     const muted = !this.state.self.muted;
     this.local.getAudioTracks().forEach((t) => (t.enabled = !muted));
     this.setSelf({ muted });
@@ -608,6 +693,10 @@ export class Meeting {
   }
 
   async startShare() {
+    if (this.state.settings.share === "host" && !this.state.self.host) {
+      this.notice("Only the host can share their screen");
+      throw new Error("not allowed");
+    }
     const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
     const [track] = s.getVideoTracks();
     track.contentHint = "detail";
@@ -670,6 +759,54 @@ export class Meeting {
   muteParticipant = (id: string) => this.sendTo(id, { t: "mute" });
   lowerHand = (id: string) => this.sendTo(id, { t: "lower-hand" });
   muteAll = () => this.broadcast({ t: "mute" });
+
+  makeCohost = (id: string, on: boolean) => {
+    this.api("", { action: "cohost", target: id, on }).catch((e) => this.notice((e as Error).message));
+  };
+
+  // ---- polls ----------------------------------------------------------------------------------
+
+  /** Host: ask a question. Everyone votes; results are live for the host and shared on close. */
+  createPoll(question: string, options: string[]) {
+    if (!this.state.self.host) return;
+    const opts = options.map((o) => o.trim()).filter(Boolean).slice(0, 10);
+    if (!question.trim() || opts.length < 2) return;
+    const poll: Poll = { id: uid(), from: "self", question: question.trim().slice(0, 300), options: opts, counts: opts.map(() => 0), voted: null, closed: false, mine: true };
+    this.set({ polls: [...this.state.polls, poll] });
+    this.broadcast({ t: "poll", id: poll.id, question: poll.question, options: poll.options });
+  }
+
+  vote(id: string, option: number) {
+    const poll = this.state.polls.find((p) => p.id === id);
+    if (!poll || poll.closed) return;
+    this.setPoll(id, { voted: option });
+    if (poll.mine) {
+      const votes = this.votes.get(id) ?? new Map<string, number>();
+      votes.set("self", option);
+      this.votes.set(id, votes);
+      this.tally(id);
+    } else this.sendTo(poll.from, { t: "vote", id, option });
+  }
+
+  /** Ends a poll and shows everyone the results. */
+  closePoll(id: string) {
+    const poll = this.state.polls.find((p) => p.id === id && p.mine);
+    if (!poll) return;
+    this.setPoll(id, { closed: true });
+    this.broadcast({ t: "poll-results", id, counts: poll.counts, closed: true });
+  }
+
+  private tally(id: string) {
+    const poll = this.state.polls.find((p) => p.id === id);
+    if (!poll) return;
+    const counts = poll.options.map(() => 0);
+    for (const v of this.votes.get(id)?.values() ?? []) counts[v]++;
+    this.setPoll(id, { counts });
+  }
+
+  private setPoll(id: string, patch: Partial<Poll>) {
+    this.set({ polls: this.state.polls.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+  }
 
   /** Host: put someone on everyone's main stage (or clear it with null). */
   setSpotlight(id: string | null) {

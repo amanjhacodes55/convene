@@ -18,7 +18,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node tests/e2e/call.mjs && node tests/e2e/platform.mjs"
+    "e2e": "node tests/e2e/call.mjs && node tests/e2e/platform.mjs && node tests/e2e/controls.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.6",
