@@ -49,7 +49,7 @@ export type App = {
 export type PublicApp = Omit<App, "secretHash">;
 
 type Grant = { grantId: string; appId: string; userId: string; scopes: Scope[]; createdAt: number };
-type Code = { appId: string; userId: string; scopes: Scope[]; redirectUri: string; challenge: string | null; method: "S256" | "plain"; grantId: string; expiresAt: number };
+type Code = { appId: string; userId: string; scopes: Scope[]; redirectUri: string; redirectGiven: boolean; challenge: string | null; method: "S256" | "plain"; grantId: string; expiresAt: number; used?: boolean };
 type Token = { kind: "access" | "refresh"; appId: string; userId: string; scopes: Scope[]; grantId: string | null; expiresAt: number };
 
 export const ACCESS_TTL = 3600;
@@ -129,19 +129,20 @@ export async function listApps(ownerId: string) {
   return apps.filter((a): a is App => a !== null).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function updateApp(ownerId: string, id: string, input: Record<string, unknown>, now = Date.now()) {
+/** `origin` is this site's address: the built-in test inbox lives there. */
+export async function updateApp(ownerId: string, id: string, input: Record<string, unknown>, now = Date.now(), origin?: string) {
   const app = await ownApp(ownerId, id);
   const next: App = { ...app, updatedAt: now };
   if (typeof input.name === "string") next.name = input.name.trim().slice(0, 60) || app.name;
   if (typeof input.description === "string") next.description = input.description.trim().slice(0, 300);
   if (input.redirectUris !== undefined && app.type === "oauth") next.redirectUris = cleanRedirects(input.redirectUris);
   if (input.scopes !== undefined) next.scopes = cleanScopes(input.scopes);
-  if (input.webhook !== undefined) next.webhook = cleanWebhook(input.webhook, app.webhook);
+  if (input.webhook !== undefined) next.webhook = cleanWebhook(input.webhook, app.webhook, origin);
   await kv().set(appKey(id), next);
   return toPublic(next);
 }
 
-function cleanWebhook(v: unknown, prev: Webhook | null): Webhook | null {
+function cleanWebhook(v: unknown, prev: Webhook | null, origin?: string): Webhook | null {
   if (v === null) return null;
   const w = (v ?? {}) as Record<string, unknown>;
   const url = typeof w.url === "string" ? w.url.trim() : prev?.url ?? "";
@@ -153,8 +154,9 @@ function cleanWebhook(v: unknown, prev: Webhook | null): Webhook | null {
       throw new RoomError(400, "Enter a valid endpoint URL.");
     }
     const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
-    // The built-in test inbox is this site itself, which is localhost when running locally.
-    const inbox = /^\/api\/bins\/[0-9a-f]{20}$/.test(u.pathname);
+    // The built-in test inbox is this site itself, which is localhost when running locally. Only
+    // this site's own origin is exempt, never a path on some other host.
+    const inbox = Boolean(origin) && u.origin === origin && /^\/api\/bins\/[0-9a-f]{20}$/.test(u.pathname);
     const prod = process.env.NODE_ENV === "production" && !inbox;
     if (u.protocol !== "https:" && !(u.protocol === "http:" && (local || !prod))) throw new RoomError(400, "Webhook endpoints must use https.");
     // A first line against server-side request forgery: no loopback, private or link-local addresses.
@@ -177,7 +179,7 @@ function privateHost(host: string) {
     const [a, b] = v4;
     return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
   }
-  return h.includes(":") && (h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80") || h.startsWith("::ffff:"));
+  return h.includes(":") && (h.startsWith("::") || h.startsWith("64:ff9b:") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80") || h.startsWith("::ffff:"));
 }
 
 export async function rotateWebhookSecret(ownerId: string, id: string) {
@@ -253,6 +255,7 @@ export async function approve(userId: string, p: AuthorizeParams, now = Date.now
     userId,
     scopes: c.scopes,
     redirectUri: c.redirectUri,
+    redirectGiven: Boolean(p.redirect_uri),
     challenge: p.code_challenge || null,
     method: p.code_challenge_method === "plain" ? "plain" : "S256",
     grantId: grant.grantId,
@@ -298,9 +301,16 @@ export async function token(params: Record<string, string | undefined>, basic: {
   if (params.grant_type === "authorization_code") {
     const key = `oauth/codes/${sha256(params.code ?? "")}`;
     const code = await store.get<Code>(key);
-    await store.delete(key); // single use, even when the exchange fails
     if (!code || code.appId !== app.id || code.expiresAt < now) throw oauthError(400, "invalid_grant", "The authorization code is invalid or has expired.");
-    if (params.redirect_uri && params.redirect_uri !== code.redirectUri) throw oauthError(400, "invalid_grant", "redirect_uri doesn't match the authorization request.");
+    if (code.used) {
+      // A code used twice may have been stolen (RFC 6749 §4.1.2): cut off every token from this grant.
+      await rotateGrant(code.userId, code.appId, code.grantId);
+      throw oauthError(400, "invalid_grant", "The authorization code has already been used.");
+    }
+    await store.set(key, { ...code, used: true }); // single use, even when the exchange fails
+    if (code.redirectGiven ? params.redirect_uri !== code.redirectUri : params.redirect_uri && params.redirect_uri !== code.redirectUri) {
+      throw oauthError(400, "invalid_grant", "redirect_uri must match the one in the authorization request.");
+    }
     if (code.challenge) {
       const v = params.code_verifier ?? "";
       const derived = code.method === "plain" ? v : createHash("sha256").update(v).digest("base64url");
@@ -318,6 +328,12 @@ export async function token(params: Record<string, string | undefined>, basic: {
   }
 
   throw oauthError(400, "unsupported_grant_type", "grant_type must be authorization_code, refresh_token or client_credentials.");
+}
+
+/** Gives a grant a new id, which invalidates every token issued under the old one. */
+async function rotateGrant(userId: string, appId: string, grantId: string) {
+  const g = await kv().get<Grant>(`users/${userId}/grants/${appId}`);
+  if (g?.grantId === grantId) await kv().set(`users/${userId}/grants/${appId}`, { ...g, grantId: rand(12) });
 }
 
 async function grantLive(t: Token) {

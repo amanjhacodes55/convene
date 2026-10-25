@@ -1,4 +1,4 @@
-import { body, handle, sameOrigin } from "@/lib/http";
+import { body, handle, originOf, sameOrigin } from "@/lib/http";
 import { deleteApp, ownApp, toPublic, updateApp } from "@/lib/oauth";
 import { requireUser } from "@/lib/session";
 
@@ -11,7 +11,7 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/apps/[id]">) {
   const { id } = await ctx.params;
   return handle(async () => {
     sameOrigin(req);
-    return { app: await updateApp((await requireUser()).id, id, await body(req)) };
+    return { app: await updateApp((await requireUser()).id, id, await body(req), Date.now(), originOf(req)) };
   });
 }
 

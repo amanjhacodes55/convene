@@ -65,6 +65,7 @@ export function meetingInput(b: Record<string, unknown>, partial = false): RoomP
     else {
       const t = typeof start === "number" ? start : typeof start === "string" ? Date.parse(start) : NaN;
       if (!Number.isFinite(t)) throw new RoomError(400, "start_time must be an ISO 8601 date-time, like 2026-11-02T15:00:00Z.");
+      if (t < Date.UTC(2000, 0, 1) || t > Date.UTC(2100, 0, 1)) throw new RoomError(400, "start_time must be between the years 2000 and 2100.");
       out.scheduledFor = t;
     }
   }

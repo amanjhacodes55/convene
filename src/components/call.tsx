@@ -441,7 +441,9 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           )}
         </div>
 
-        <div className="scroll-thin mx-auto flex min-w-0 items-center gap-0.5 overflow-x-auto sm:gap-1">
+        {/* No overflow scrolling here: it would clip the React and More popovers. Narrow screens drop
+            Record, Captions and Raise hand from the bar; they stay reachable from More and React. */}
+        <div className="mx-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
           <Control label="Participants" on={panel === "people"} badge={self.host ? state.waiting.length : 0} count={remotes.length + 1} onClick={() => showPanel(panel === "people" ? null : "people")} id="ctl-people" title="Participants (P)">
             <Users size={20} />
           </Control>
@@ -451,10 +453,10 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           <Control label={self.sharing ? "Stop share" : "Share"} share onClick={() => void toggleShare()} id="ctl-share" on={self.sharing}>
             {self.sharing ? <MonitorX size={20} /> : <MonitorUp size={20} />}
           </Control>
-          <Control label={self.recording ? "Stop rec." : "Record"} onClick={() => void toggleRecording()} id="ctl-record" rec={self.recording} title="Record to this computer">
+          <Control label={self.recording ? "Stop rec." : "Record"} onClick={() => void toggleRecording()} id="ctl-record" rec={self.recording} title="Record to this computer" wide>
             {self.recording ? <Square size={17} fill="currentColor" /> : <Radio size={20} />}
           </Control>
-          <Control label="Captions" on={self.cc} onClick={() => meeting.toggleCaptions()} id="ctl-cc" title={state.captionsUnavailable ? "Live captions need Chrome or Edge" : "Live captions"}>
+          <Control label="Captions" on={self.cc} onClick={() => meeting.toggleCaptions()} id="ctl-cc" title={state.captionsUnavailable ? "Live captions need Chrome or Edge" : "Live captions"} wide>
             <Captions size={20} />
           </Control>
           <div className="relative">
@@ -476,7 +478,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
               </Popover>
             )}
           </div>
-          <Control label={self.hand ? "Lower hand" : "Raise hand"} on={self.hand} onClick={() => meeting.toggleHand()} id="ctl-hand" title="Raise hand (H)">
+          <Control label={self.hand ? "Lower hand" : "Raise hand"} on={self.hand} onClick={() => meeting.toggleHand()} id="ctl-hand" title="Raise hand (H)" wide>
             <Hand size={20} />
           </Control>
           <div className="relative">
@@ -487,6 +489,9 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
               <Popover align="right">
                 <MenuItem icon={<Radio size={16} className={self.recording ? "text-danger" : ""} />} onClick={() => void toggleRecording()} id="menu-record">
                   {self.recording ? "Stop recording" : "Record to this computer"}
+                </MenuItem>
+                <MenuItem icon={<Captions size={16} className={self.cc ? "text-accent-ink" : ""} />} onClick={() => (meeting.toggleCaptions(), setMenu(null))}>
+                  {self.cc ? "Turn off captions" : "Live captions"}
                 </MenuItem>
                 <MenuItem icon={<Link2 size={16} />} onClick={() => (copyLink(), setMenu(null))}>
                   Copy invite link
@@ -597,12 +602,12 @@ function RemoteAudio({ stream, sinkId }: { stream: MediaStream; sinkId: string }
   return <audio ref={el} autoPlay />;
 }
 
-type ControlProps = { label: string; children: ReactNode; onClick: () => void; off?: boolean; on?: boolean; share?: boolean; rec?: boolean; badge?: number; count?: number; id?: string; title?: string };
+type ControlProps = { label: string; children: ReactNode; onClick: () => void; off?: boolean; on?: boolean; share?: boolean; rec?: boolean; badge?: number; count?: number; id?: string; title?: string; wide?: boolean };
 
 /** A control-bar button: an icon with its label underneath, as in desktop meeting apps. */
 function Control(p: ControlProps) {
   return (
-    <button className="bar-btn" data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
+    <button className={`bar-btn ${p.wide ? "max-md:hidden" : ""}`} data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
       <span>
         {p.children}
         {p.count ? <i className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-raise px-1 text-[10px] font-semibold not-italic text-ink ring-2 ring-[#0a0b0f]">{p.count}</i> : null}

@@ -49,13 +49,23 @@ describe("oauth", () => {
     // Codes are single use, even after a failed exchange.
     await expect(token({ grant_type: "authorization_code", code, code_verifier: verifier }, basic, T)).rejects.toMatchObject({ code: "invalid_grant" });
 
+    // Without the redirect_uri that the authorization request named, the exchange is refused.
+    const code1 = new URL(await approve(user.id, params, T)).searchParams.get("code")!;
+    await expect(token({ grant_type: "authorization_code", code: code1, code_verifier: verifier }, basic, T)).rejects.toMatchObject({ code: "invalid_grant" });
+
     const code2 = new URL(await approve(user.id, params, T)).searchParams.get("code")!;
     const tok = await token({ grant_type: "authorization_code", code: code2, code_verifier: verifier, redirect_uri: REDIRECT }, basic, T);
     expect(tok).toMatchObject({ token_type: "bearer", scope: "meeting:read user:read" });
     expect(await bearer(`Bearer ${tok.access_token}`, T)).toMatchObject({ userId: user.id, scopes: ["meeting:read", "user:read"] });
 
-    const next = await token({ grant_type: "refresh_token", refresh_token: tok.refresh_token as string }, basic, T);
-    await expect(token({ grant_type: "refresh_token", refresh_token: tok.refresh_token as string }, basic, T)).rejects.toMatchObject({ code: "invalid_grant" });
+    // Replaying a used code revokes what it issued.
+    await expect(token({ grant_type: "authorization_code", code: code2, code_verifier: verifier, redirect_uri: REDIRECT }, basic, T)).rejects.toMatchObject({ code: "invalid_grant" });
+    await expect(bearer(`Bearer ${tok.access_token}`, T)).rejects.toMatchObject({ status: 401 });
+    const code3 = new URL(await approve(user.id, params, T)).searchParams.get("code")!;
+    const tok3 = await token({ grant_type: "authorization_code", code: code3, code_verifier: verifier, redirect_uri: REDIRECT }, basic, T);
+
+    const next = await token({ grant_type: "refresh_token", refresh_token: tok3.refresh_token as string }, basic, T);
+    await expect(token({ grant_type: "refresh_token", refresh_token: tok3.refresh_token as string }, basic, T)).rejects.toMatchObject({ code: "invalid_grant" });
 
     // Revoking the app's access kills every token issued under it.
     await revokeGrant(user.id, app.id);
@@ -96,6 +106,8 @@ describe("meetings with owners", () => {
     expect(guest.peer.host).toBe(false);
     expect((await liveParticipants(code, T + 2000)).participants.map((p) => p.name)).toEqual(["Dana", "Leo"]);
     await leave(code, await authenticate(code, guest.peer.id, guest.token), T + 61_000);
+    // The host keeps polling (a heartbeat); someone who stops counts as gone from their last poll.
+    await poll(code, await authenticate(code, host.peer.id, host.token), undefined, T + 110_000);
     await hostAction(code, await authenticate(code, host.peer.id, host.token), { action: "end" }, T + 120_000);
     const report = await attendance(code, T + 130_000);
     expect(report.map((r) => [r.name, r.duration, r.reason])).toEqual([
@@ -171,7 +183,11 @@ describe("webhook endpoints", () => {
         await expect(updateApp(dev.id, app.id, { webhook: { url, events: [] } })).rejects.toMatchObject({ status: 400 });
       }
       await expect(updateApp(dev.id, app.id, { webhook: { url: "https://hooks.example.com/x", events: [] } })).resolves.toBeTruthy();
-      await expect(updateApp(dev.id, app.id, { webhook: { url: "http://localhost:3000/api/bins/0123456789abcdef0123", events: [] } })).resolves.toBeTruthy();
+      const inbox = "http://localhost:3000/api/bins/0123456789abcdef0123";
+      await expect(updateApp(dev.id, app.id, { webhook: { url: inbox, events: [] } }, T, "http://localhost:3000")).resolves.toBeTruthy();
+      // The inbox path on any other host is not exempt.
+      await expect(updateApp(dev.id, app.id, { webhook: { url: "http://169.254.169.254/api/bins/0123456789abcdef0123", events: [] } }, T, "http://localhost:3000")).rejects.toMatchObject({ status: 400 });
+      await expect(updateApp(dev.id, app.id, { webhook: { url: "https://[::]/x", events: [] } })).rejects.toMatchObject({ status: 400 });
     } finally {
       vi.unstubAllEnvs();
     }

@@ -358,9 +358,11 @@ function Detail({ code }: { code: string }) {
               >
                 <ClipboardCopy size={15} /> {copied ? "Copied" : "Copy invitation"}
               </button>
-              <button className="btn h-9 text-sm text-danger" onClick={() => setConfirm(true)}>
-                <Trash2 size={15} /> Delete
-              </button>
+              {!live && (
+                <button className="btn h-9 text-sm text-danger" onClick={() => setConfirm(true)}>
+                  <Trash2 size={15} /> Delete
+                </button>
+              )}
             </div>
           )}
         </section>
@@ -441,7 +443,7 @@ function Detail({ code }: { code: string }) {
       )}
       {confirm && (
         <Modal title="Delete this meeting?" onClose={() => setConfirm(false)}>
-          <p className="text-sm text-ink-2">The invite link stops working{live ? ", and everyone in it now is disconnected" : ""}. This can&apos;t be undone.</p>
+          <p className="text-sm text-ink-2">The invite link stops working. This can&apos;t be undone.</p>
           <div className="mt-5 flex justify-end gap-2">
             <button className="btn" onClick={() => setConfirm(false)}>
               Cancel

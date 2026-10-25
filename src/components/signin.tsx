@@ -7,7 +7,16 @@ import { call } from "@/client/fetch";
 import { Logo } from "./ui";
 
 /** Only same-site paths, so ?next= can't send someone to another site after signing in. */
-const safeNext = (n: string | null) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/app");
+function safeNext(n: string | null) {
+  if (!n) return "/app";
+  try {
+    // Resolve it as the browser would: "/\\evil.com" and "/\t/evil.com" are other sites.
+    const u = new URL(n, location.origin);
+    return u.origin === location.origin ? u.pathname + u.search + u.hash : "/app";
+  } catch {
+    return "/app";
+  }
+}
 
 export function SignIn() {
   const router = useRouter();

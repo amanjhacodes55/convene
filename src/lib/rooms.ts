@@ -311,6 +311,7 @@ export async function hostAction(code: string, host: Peer, input: HostAction, no
   if (!host.host || host.status !== "admitted") throw new RoomError(403, "Only the host can do that.");
   const store = kv();
   const meta = await getRoom(code);
+  if (meta.endedAt) throw new RoomError(409, "This meeting has ended.");
 
   if (input.action === "settings") {
     const next = { ...meta, locked: input.locked ?? meta.locked, waitingRoom: input.waitingRoom ?? meta.waitingRoom };
@@ -355,7 +356,8 @@ async function endRoom(meta: RoomMeta, now: number, except?: string) {
   await kv().set(metaKey(meta.code), ended);
   const all = await peers(meta.code);
   await notify(meta.code, all.filter((p) => live(p, now) && p.id !== except).map((p) => p.id), "ended", null, now);
-  for (const p of all) if (p.status === "admitted") await departed(ended, p, "ended", now);
+  // Someone who had already dropped off left when they last polled, not when the meeting ended.
+  for (const p of all) if (p.status === "admitted") await departed(ended, p, "ended", live(p, now) ? now : p.lastSeen);
   tell(ended, "meeting.ended", {}, now);
 }
 
@@ -400,7 +402,8 @@ export async function updateRoom(userId: string, code: string, patch: RoomPatch,
 
 export async function deleteRoom(userId: string, code: string, now = Date.now()) {
   const meta = await ownRoom(userId, code);
-  if (!meta.endedAt && (await inMeeting(code, now)).length) await endRoom(meta, now);
+  // Deleting wipes the inboxes, so people still in the call would never hear it ended.
+  if (!meta.endedAt && (await inMeeting(code, now)).length) throw new RoomError(409, "This meeting is live. End it first, then delete it.");
   const store = kv();
   for (const k of await store.list(`rooms/${code}/`)) await store.delete(k);
   await store.delete(`users/${userId}/meetings/${code}`);

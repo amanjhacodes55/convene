@@ -106,7 +106,7 @@ export const ENDPOINTS: Endpoint[] = [
     path: "/api/v1/meetings/{meetingId}",
     scope: "meeting:write",
     title: "Delete a meeting",
-    text: "Deletes the meeting and its link. A live meeting is ended for everyone first. Responds 204.",
+    text: "Deletes the meeting and its link. Responds 204, or 409 while people are in it: end it first.",
     status: 204,
   },
   {

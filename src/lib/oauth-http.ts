@@ -17,5 +17,9 @@ export function basicAuth(req: Request) {
   const m = req.headers.get("authorization")?.match(/^Basic\s+(\S+)$/i);
   if (!m) return null;
   const [id, ...rest] = Buffer.from(m[1], "base64").toString().split(":");
-  return { id: decodeURIComponent(id), secret: decodeURIComponent(rest.join(":")) };
+  try {
+    return { id: decodeURIComponent(id), secret: decodeURIComponent(rest.join(":")) };
+  } catch {
+    return { id: "", secret: "" }; // undecodable: fails client authentication
+  }
 }

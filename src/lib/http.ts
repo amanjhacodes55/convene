@@ -28,9 +28,12 @@ export async function body(req: Request): Promise<Record<string, unknown>> {
  */
 export function sameOrigin(req: Request) {
   const origin = req.headers.get("origin");
-  if (origin && new URL(origin).host !== (req.headers.get("x-forwarded-host") ?? req.headers.get("host"))) {
-    throw new RoomError(403, "Cross-site request refused.");
-  }
+  if (!origin) return;
+  let host = "";
+  try {
+    host = new URL(origin).host; // "null" (sandboxed frames) doesn't parse: cross-site
+  } catch {}
+  if (host !== (req.headers.get("x-forwarded-host") ?? req.headers.get("host"))) throw new RoomError(403, "Cross-site request refused.");
 }
 
 /** The site's own address as the browser sees it, for links in responses. */
