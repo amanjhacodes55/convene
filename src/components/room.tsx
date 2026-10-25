@@ -8,11 +8,20 @@ import { Call } from "./call";
 import { Lobby, type RoomInfo } from "./lobby";
 import { Avatar, Logo, Screen } from "./ui";
 
+/**
+ * The host key for this meeting: from a start_url's #host= fragment (kept, then wiped from the
+ * address bar), or saved when this browser started the meeting.
+ */
 const hostKeyFor = (code: string) => {
+  const fromLink = new URLSearchParams(location.hash.slice(1)).get("host");
   try {
+    if (fromLink) {
+      localStorage.setItem(`convene:host:${code}`, fromLink);
+      history.replaceState(null, "", location.pathname + location.search);
+    }
     return localStorage.getItem(`convene:host:${code}`);
   } catch {
-    return null;
+    return fromLink;
   }
 };
 
@@ -59,7 +68,7 @@ export function Room({ code }: { code: string }) {
     return (
       <Lobby
         info={info}
-        isHost={Boolean(hostKey)}
+        isHost={Boolean(hostKey) || info.owner}
         onJoin={(stream, name) => {
           const m = new Meeting(code, name, stream, hostKey);
           setMeeting(m);

@@ -4,13 +4,13 @@
 
 # Convene
 
-**Open-source video meetings that open in a browser tab. HD video, screen sharing, chat, reactions, waiting rooms and local recording, with no app, no account and no media server.**
+**Open-source video meetings that open in a browser tab, with a developer platform: a REST API, OAuth 2.0 apps with scopes, and signed webhooks. No app to install, no account needed to join, and no media server.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![WebRTC](https://img.shields.io/badge/WebRTC-peer%20to%20peer-333?logo=webrtc&logoColor=white)](https://webrtc.org)
 
-**Live:** <https://convene-meet.netlify.app>
+**Live:** <https://convene-meet.netlify.app> · [Developer docs](https://convene-meet.netlify.app/developers/docs)
 
 </div>
 
@@ -31,7 +31,50 @@ link, and everyone talks in their browser. It is free to use, change and host un
   remove someone; lock the meeting; end it for everyone.
 - **Record to this computer**: every tile and every voice, mixed into a WebM file. Nothing is uploaded, and
   everyone sees a recording badge while it runs.
-- Keyboard: **M** mutes, **V** toggles the camera.
+- **A desktop-app control bar**: mute and camera buttons with device menus, Participants, Chat, a green Share
+  button, Record, Captions and Reactions, a meeting-info panel (ID, host, invite link, encryption), and a View
+  menu with speaker and gallery layouts, hide self view and full screen.
+- **Live captions**: each speaker's own browser transcribes their microphone (Web Speech API) and sends the
+  text to whoever has captions on. Audio never goes anywhere new.
+- **Spotlight** someone for everyone (host), or pin them just for you; **private chat** to one person; tile
+  menus for pin, spotlight, message, mute and remove.
+- **Zoom-style details**: hold **Space** to talk while muted, a "you're muted" hint when you start talking,
+  soft join and leave chimes, and an **Admit** button right in the waiting-room notice.
+- Keyboard: **M** mute, **V** camera, **H** hand, **C** chat, **P** participants, **?** for the list.
+
+### With a free account
+
+- **Meetings dashboard**: schedule meetings with a topic, time, duration and agenda; copy a ready-made
+  invitation; start or join with one click. Your meetings recognise you as host on any device.
+- **Attendance reports**: who joined, when they left and for how long, with CSV export, plus a live roster
+  while the meeting is on.
+- **Connected apps**: see which apps can use your account and remove their access.
+
+### Developer platform
+
+Like the Zoom, Webex and Teams developer platforms, scaled to what a meeting app needs:
+
+- **REST API** at `/api/v1`: create, list, update, delete and end meetings; live participants and the waiting
+  room; attendance reports; and posting messages into a live meeting's chat as your app.
+- **OAuth 2.0**: *OAuth apps* use the authorization-code grant with PKCE, a consent screen that lists each
+  scope, and rotating refresh tokens. *Server-to-Server apps* use client credentials. Tokens and secrets are
+  stored only as SHA-256 hashes; removing an app revokes every token it holds.
+- **Scopes**: `user:read`, `meeting:read`, `meeting:write`, `participant:read`, `chat:write`, checked on
+  every endpoint (`403 insufficient_scope` otherwise).
+- **Webhooks**: `meeting.created/updated/deleted/started/ended` and `participant.joined/left/waiting`, signed
+  with HMAC-SHA256 (`Convene-Signature: t=…,v1=…`), with a delivery log, redelivery, a test event, and a
+  **built-in test inbox** that checks signatures, so you can try webhooks without running a server.
+- **Developer portal**: create apps, manage credentials, redirect URIs, scopes and webhooks, walk through
+  the install flow, and an **API playground** that sends real requests and shows the cURL.
+- **Docs** at [/developers/docs](https://convene-meet.netlify.app/developers/docs).
+
+```bash
+# A server-to-server app: get a token, then schedule a meeting.
+curl -X POST https://convene-meet.netlify.app/oauth/token -u "$CLIENT_ID:$CLIENT_SECRET" -d grant_type=client_credentials
+curl -X POST https://convene-meet.netlify.app/api/v1/meetings \
+  -H "Authorization: Bearer $ACCESS_TOKEN" -H "Content-Type: application/json" \
+  -d '{"topic":"Onboarding call","start_time":"2026-11-02T15:00:00Z","duration":30}'
+```
 
 ## How it works
 
@@ -53,6 +96,9 @@ flowchart LR
   (microphone, camera, screen) and a data channel. Turning the camera off or starting a share only swaps
   tracks, so a call never renegotiates once it is up. ICE candidates ride inside the offer and answer, so
   setting up a connection takes one message each way.
+- **Accounts, apps and tokens live in the same store.** Passwords are scrypt hashes; sessions, client
+  secrets, authorization codes and tokens are kept only as SHA-256 hashes. Webhooks go out after the response
+  (Next.js `after()`), so a join is never slowed down by someone else's endpoint.
 - **Hosts are enforced on the server.** Creating a meeting returns a host key (kept in the creator's
   browser); every participant gets a secret token. The waiting room, removal, locking and ending are checked
   server-side, not just hidden in the UI.
@@ -78,16 +124,19 @@ For networks that block direct connections, add a TURN server with `TURN_URLS`, 
 ## Development
 
 ```bash
-npm test           # room logic: joining, signalling order, waiting room, host controls
+npm test           # room logic, accounts, OAuth flows, scopes, webhook signing, attendance
 npm run lint
 npm run typecheck
 npm run build && npx next start -p 3020 &
 BASE=http://localhost:3020 npm run e2e   # real browsers in a real call, through the UI
 ```
 
-The end-to-end test drives Chrome with fake cameras: a host starts a meeting, a guest joins and both see
-video, chat and mute state cross over, a screen share takes the stage, a newcomer is held in the waiting
-room until admitted, and the host ends the meeting for everyone.
+The end-to-end tests drive Chrome with fake cameras. In a call: a host starts a meeting, a guest joins and
+both see video, chat and mute state cross over, a screen share takes the stage, a newcomer waits until the
+host admits them from the notice, a private message reaches only its recipient, a spotlight shows for
+everyone, and the host ends the meeting. On the platform: a developer signs up, creates an OAuth app, goes
+through the consent screen, exchanges the code and calls the API, sees signed webhooks arrive in the test
+inbox, creates a meeting from the playground, and posts a message that appears in the live meeting's chat.
 
 ## License
 

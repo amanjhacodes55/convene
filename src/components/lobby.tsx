@@ -1,11 +1,12 @@
 "use client";
 
-import { Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { CalendarClock, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { call, type Me } from "@/client/fetch";
 import { audioConstraints, videoConstraints } from "@/client/meeting";
 import { Avatar, Logo } from "./ui";
 
-export type RoomInfo = { code: string; title: string; locked: boolean; waitingRoom: boolean; ended: boolean };
+export type RoomInfo = { code: string; title: string; locked: boolean; waitingRoom: boolean; ended: boolean; scheduledFor: number | null; owner: boolean };
 
 type Devices = { audioinput: MediaDeviceInfo[]; videoinput: MediaDeviceInfo[]; audiooutput: MediaDeviceInfo[] };
 
@@ -45,6 +46,15 @@ export function Lobby({ info, isHost, onJoin }: { info: RoomInfo; isHost: boolea
   /** Joining waits for the camera and microphone request to settle, or the call starts without them. */
   const [ready, setReady] = useState(false);
   const handedOff = useRef(false);
+
+  // Signed in with no name saved here yet: use the account's name.
+  useEffect(() => {
+    if (read("convene:name")) return;
+    call<{ user: Me | null }>("/api/auth/me").then(
+      (r) => r.user && setName((n) => n || r.user!.name),
+      () => {},
+    );
+  }, []);
 
   // Ask for both devices once; fall back to whatever is available.
   useEffect(() => {
@@ -220,6 +230,12 @@ export function Lobby({ info, isHost, onJoin }: { info: RoomInfo; isHost: boolea
           <p className="text-sm text-ink-2">{isHost ? "You're the host of" : "You're joining"}</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight">{info.title}</h1>
           <p className="mt-2 font-mono text-sm text-muted">{info.code}</p>
+          {info.scheduledFor && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-ink-2">
+              <CalendarClock size={15} />
+              {new Date(info.scheduledFor).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </p>
+          )}
           <label className="mt-8 block text-sm font-medium text-ink-2" htmlFor="name">
             Your name
           </label>

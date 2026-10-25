@@ -1,6 +1,8 @@
-import { Hand, Lock, MessageSquare, Mic, MonitorUp, Radio, ShieldCheck, Smile, Users, Video } from "lucide-react";
+import { ArrowRight, CalendarDays, Captions, Code2, Hand, Lock, MessageSquare, Mic, MonitorUp, Radio, ShieldCheck, Smile, Users, Video } from "lucide-react";
+import Link from "next/link";
+import { SiteHeader } from "@/components/site";
 import { JoinMeeting, StartMeeting } from "@/components/start";
-import { Avatar, Logo } from "@/components/ui";
+import { Avatar } from "@/components/ui";
 
 const FEATURES = [
   { icon: Users, title: "HD video for small teams", text: "Up to 720p video and clear audio with echo cancellation and noise suppression, peer to peer." },
@@ -8,7 +10,9 @@ const FEATURES = [
   { icon: MessageSquare, title: "Chat and reactions", text: "Send messages and links during the call, react with emoji, and raise your hand to speak." },
   { icon: ShieldCheck, title: "Waiting room and host controls", text: "Let people in one by one, lock the meeting, mute participants or remove them." },
   { icon: Radio, title: "Record to your computer", text: "Record the whole meeting, every tile and voice, to a video file. Nothing is uploaded." },
-  { icon: Lock, title: "Private by design", text: "Audio and video go straight between participants, encrypted with DTLS-SRTP. No accounts." },
+  { icon: Captions, title: "Live captions", text: "Turn on captions and see what everyone says as they say it, transcribed in each speaker's own browser." },
+  { icon: CalendarDays, title: "Scheduling and reports", text: "With a free account: schedule meetings, copy invitations, and see who attended and for how long." },
+  { icon: Lock, title: "Private by design", text: "Audio and video go straight between participants, encrypted with DTLS-SRTP. No account needed to join." },
 ];
 
 const DEMO = [
@@ -21,14 +25,7 @@ const DEMO = [
 export default function Home() {
   return (
     <div className="w-full">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
-        <span className="flex items-center gap-2.5 text-lg font-semibold">
-          <Logo /> Convene
-        </span>
-        <a className="btn border-transparent bg-transparent" href="https://github.com/amanjhacodes55/convene">
-          GitHub
-        </a>
-      </header>
+      <SiteHeader active="home" />
 
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-8 sm:px-6 lg:grid-cols-[1fr_1.1fr] lg:pt-16">
         <div>
@@ -92,6 +89,23 @@ export default function Home() {
               <p className="mt-1.5 text-sm text-ink-2">{f.text}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+        <div className="card flex flex-col items-start gap-6 overflow-hidden bg-[radial-gradient(ellipse_at_top_right,rgba(109,124,255,.18),transparent_60%)] p-8 md:flex-row md:items-center">
+          <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-accent/20 text-accent-ink">
+            <Code2 size={26} />
+          </span>
+          <div className="flex-1">
+            <h2 className="text-xl font-semibold">Build on Convene</h2>
+            <p className="mt-1 max-w-2xl text-ink-2">
+              A REST API for meetings, OAuth 2.0 apps with scopes, and signed webhooks for every join and leave. Create meetings from your CRM and post into the meeting chat.
+            </p>
+          </div>
+          <Link className="btn btn-primary h-11 px-5" href="/developers">
+            Developer platform <ArrowRight size={16} />
+          </Link>
         </div>
       </section>
 

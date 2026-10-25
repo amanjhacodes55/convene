@@ -2,7 +2,7 @@
   "name": "convene",
   "version": "1.0.0",
   "private": true,
-  "description": "Open-source video meetings in the browser: HD video, screen sharing, chat, reactions, waiting rooms and local recording. Runs on Netlify with no media server.",
+  "description": "Open-source video meetings in the browser: HD video, screen sharing, chat, captions, waiting rooms and local recording, plus a developer platform with a REST API, OAuth 2.0 apps and signed webhooks. Runs on Netlify with no media server.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -18,7 +18,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node tests/e2e/call.mjs"
+    "e2e": "node tests/e2e/call.mjs && node tests/e2e/platform.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.6",

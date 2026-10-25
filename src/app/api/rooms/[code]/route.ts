@@ -1,9 +1,10 @@
 import { body, handle } from "@/lib/http";
 import { authenticate, hostAction, join, leave, RoomError, roomInfo, signal, type HostAction } from "@/lib/rooms";
+import { currentUser } from "@/lib/session";
 
 export async function GET(_req: Request, ctx: RouteContext<"/api/rooms/[code]">) {
   const { code } = await ctx.params;
-  return handle(() => roomInfo(code));
+  return handle(async () => roomInfo(code, (await currentUser())?.id));
 }
 
 /** Everything a participant does besides polling: join, signal, leave and host controls. */
@@ -11,7 +12,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/rooms/[code]">)
   const { code } = await ctx.params;
   return handle(async () => {
     const b = await body(req);
-    if (b.action === "join") return join(code, { name: b.name, hostKey: b.hostKey });
+    // The meeting's owner, signed in, is its host on any device without the host key.
+    if (b.action === "join") return join(code, { name: b.name, hostKey: b.hostKey, userId: (await currentUser())?.id });
     const peer = await authenticate(code, b.peerId, b.token);
     switch (b.action) {
       case "signal":
