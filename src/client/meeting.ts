@@ -11,8 +11,8 @@ export type PublicPeer = { id: string; name: string; joinedAt: number; host: boo
 export type Settings = { locked: boolean; waitingRoom: boolean };
 export type Phase = "joining" | "waiting" | "in" | "left" | "denied" | "removed" | "ended" | "error";
 
-/** What each participant shares about themselves over the data channel. */
-export type PeerState = { muted: boolean; camOff: boolean; hand: boolean; sharing: boolean; recording: boolean };
+/** What each participant shares about themselves over the data channel. `cc`: wants live captions. */
+export type PeerState = { muted: boolean; camOff: boolean; hand: boolean; sharing: boolean; recording: boolean; cc: boolean };
 
 export type Remote = PeerState &
   PublicPeer & {
@@ -24,9 +24,12 @@ export type Remote = PeerState &
     quality: 0 | 1 | 2 | 3;
   };
 
-export type ChatMessage = { id: string; from: string; name: string; text: string; at: number };
+/** `to` is set on private messages (the other person's id); `app` on messages posted through the API. */
+export type ChatMessage = { id: string; from: string; name: string; text: string; at: number; to?: string; app?: boolean };
 export type Reaction = { id: string; from: string; emoji: string };
-export type Notice = { id: string; text: string };
+export type Notice = { id: string; text: string; action?: { label: string; run: () => void } };
+/** One speaker's latest line of live captions. */
+export type Caption = { from: string; name: string; text: string; at: number };
 
 export type MeetingState = {
   phase: Phase;
@@ -44,6 +47,13 @@ export type MeetingState = {
   /** Participants whose microphone is loud right now; "self" is the local user. */
   speaking: string[];
   activeSpeaker: string | null;
+  /** Who the host has spotlighted for everyone ("self" for this user). */
+  spotlight: string | null;
+  captions: Caption[];
+  /** Captions can't run in this browser (no speech recognition). */
+  captionsUnavailable: boolean;
+  /** The microphone is muted but the user seems to be talking. */
+  talkingWhileMuted: boolean;
 };
 
 type Link = {
@@ -62,10 +72,15 @@ type Link = {
 type Signal = { description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
 type Wire =
   | ({ t: "state"; name: string } & PeerState)
-  | { t: "chat"; id: string; text: string; at: number }
+  | { t: "chat"; id: string; text: string; at: number; private?: boolean }
   | { t: "react"; emoji: string }
   | { t: "mute" }
-  | { t: "lower-hand" };
+  | { t: "lower-hand" }
+  | { t: "spotlight"; id: string | null }
+  | { t: "caption"; text: string };
+
+type Recognition = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; onerror: ((e: { error: string }) => void) | null };
+const SpeechRecognitionImpl = () => (globalThis as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition }).SpeechRecognition ?? (globalThis as unknown as { webkitSpeechRecognition?: new () => Recognition }).webkitSpeechRecognition;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -103,6 +118,12 @@ export class Meeting {
   private localAnalyser: AnalyserNode | null = null;
   private timers: ReturnType<typeof setInterval>[] = [];
   private lastLoud = new Map<string, number>();
+  private recognition: Recognition | null = null;
+  private levelTrack: MediaStreamTrack | null = null;
+  private loudWhileMuted = 0;
+  private pushToTalk = false;
+  /** Sound effects for joins, leaves and knocks; off for tests and recordings with ?quiet. */
+  sounds = true;
 
   constructor(
     code: string,
@@ -119,7 +140,7 @@ export class Meeting {
       code,
       title: "",
       startedAt: Date.now(),
-      self: { id: "", name, joinedAt: 0, host: false, muted: !audioOn, camOff: !camOn, hand: false, sharing: false, recording: false },
+      self: { id: "", name, joinedAt: 0, host: false, muted: !audioOn, camOff: !camOn, hand: false, sharing: false, recording: false, cc: false },
       remotes: [],
       waiting: [],
       settings: { locked: false, waitingRoom: false },
@@ -128,6 +149,10 @@ export class Meeting {
       notices: [],
       speaking: [],
       activeSpeaker: null,
+      spotlight: null,
+      captions: [],
+      captionsUnavailable: false,
+      talkingWhileMuted: false,
     };
   }
 
@@ -150,10 +175,31 @@ export class Meeting {
   }
   /** A short message at the bottom of the call; disappears on its own. */
   toast = (text: string) => this.notice(text);
-  private notice(text: string) {
-    const n = { id: uid(), text };
+  private notice(text: string, action?: Notice["action"], ms = 4500) {
+    const n: Notice = { id: uid(), text, action };
     this.set({ notices: [...this.state.notices, n].slice(-4) });
-    setTimeout(() => this.set({ notices: this.state.notices.filter((x) => x !== n) }), 4500);
+    setTimeout(() => this.dismiss(n.id), ms);
+  }
+  dismiss = (id: string) => this.set({ notices: this.state.notices.filter((x) => x.id !== id) });
+
+  /** A soft two-note chime, synthesised: up for arrivals, down for departures. */
+  private chime(kind: "in" | "out" | "knock") {
+    if (!this.sounds || !this.audio || this.audio.state !== "running") return;
+    const notes = kind === "in" ? [660, 880] : kind === "out" ? [740, 494] : [880, 880];
+    const t0 = this.audio.currentTime;
+    notes.forEach((f, i) => {
+      const o = this.audio!.createOscillator();
+      const g = this.audio!.createGain();
+      o.type = "sine";
+      o.frequency.value = f;
+      const at = t0 + i * 0.13;
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(0.06, at + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.35);
+      o.connect(g).connect(this.audio!.destination);
+      o.start(at);
+      o.stop(at + 0.4);
+    });
   }
 
   // ---- joining and leaving --------------------------------------------------------------------
@@ -215,6 +261,8 @@ export class Meeting {
     this.token = "";
     removeEventListener("pagehide", this.beacon);
     this.timers.forEach(clearInterval);
+    this.stopCaptions();
+    this.levelTrack?.stop();
     this.links.forEach((l) => l.pc.close());
     this.links.clear();
     this.local.getTracks().forEach((t) => t.stop());
@@ -268,6 +316,7 @@ export class Meeting {
         const p = data as PublicPeer;
         this.addRemote(p);
         this.notice(`${p.name} joined`);
+        this.chime("in");
         this.set({ waiting: this.state.waiting.filter((w) => w.id !== p.id) });
         return;
       }
@@ -275,13 +324,17 @@ export class Meeting {
         const { id } = data as { id: string };
         const r = this.state.remotes.find((x) => x.id === id);
         this.drop(id);
-        if (r) this.notice(`${r.name} left`);
+        if (r) {
+          this.notice(`${r.name} left`);
+          this.chime("out");
+        }
         return;
       }
       case "knock": {
         const p = data as PublicPeer;
         if (!this.state.waiting.some((w) => w.id === p.id)) this.set({ waiting: [...this.state.waiting, p] });
-        this.notice(`${p.name} is in the waiting room`);
+        this.notice(`${p.name} is in the waiting room`, { label: "Admit", run: () => void this.admit(p.id) }, 9000);
+        this.chime("knock");
         return;
       }
       case "knock-cancelled":
@@ -293,6 +346,12 @@ export class Meeting {
       case "settings":
         this.set({ settings: data as Settings });
         return;
+      case "app-message": {
+        const m = data as { id: string; app: string; appId: string; text: string; at: number };
+        this.set({ chat: [...this.state.chat, { id: m.id, from: `app:${m.appId}`, name: m.app, text: m.text, at: m.at, app: true }] });
+        this.notice(`${m.app}: ${m.text.length > 80 ? `${m.text.slice(0, 80)}…` : m.text}`);
+        return;
+      }
     }
   }
 
@@ -307,6 +366,7 @@ export class Meeting {
       hand: false,
       sharing: false,
       recording: false,
+      cc: false,
       conn: "connecting",
       media: new MediaStream(),
       screen: new MediaStream(),
@@ -319,7 +379,13 @@ export class Meeting {
     this.links.get(id)?.pc.close();
     this.links.delete(id);
     this.lastLoud.delete(id);
-    this.set({ remotes: this.state.remotes.filter((r) => r.id !== id), speaking: this.state.speaking.filter((s) => s !== id) });
+    this.set({
+      remotes: this.state.remotes.filter((r) => r.id !== id),
+      speaking: this.state.speaking.filter((s) => s !== id),
+      spotlight: this.state.spotlight === id ? null : this.state.spotlight,
+      captions: this.state.captions.filter((c) => c.from !== id),
+    });
+    this.syncCaptions();
   }
 
   private connect(id: string, offerer: boolean): Link {
@@ -340,7 +406,11 @@ export class Meeting {
         if (link.offerer) void this.offer(id, true);
       }
     };
-    dc.onopen = () => this.sendTo(id, this.stateMessage());
+    dc.onopen = () => {
+      this.sendTo(id, this.stateMessage());
+      // A host tells newcomers who is in the spotlight.
+      if (this.state.self.host && this.state.spotlight) this.sendTo(id, { t: "spotlight", id: this.state.spotlight === "self" ? this.state.self.id : this.state.spotlight });
+    };
     dc.onmessage = (e) => this.onWire(id, JSON.parse(e.data));
 
     if (offerer) {
@@ -432,8 +502,8 @@ export class Meeting {
   // ---- the data channel -----------------------------------------------------------------------
 
   private stateMessage(): Wire {
-    const { name, muted, camOff, hand, sharing, recording } = this.state.self;
-    return { t: "state", name, muted, camOff, hand, sharing, recording };
+    const { name, muted, camOff, hand, sharing, recording, cc } = this.state.self;
+    return { t: "state", name, muted, camOff, hand, sharing, recording, cc };
   }
   private sendTo(id: string, msg: Wire) {
     const dc = this.links.get(id)?.dc;
@@ -453,10 +523,12 @@ export class Meeting {
       if (msg.hand && !r.hand) this.notice(`${r.name} raised their hand ✋`);
       if (msg.sharing && !r.sharing) this.notice(`${r.name} is sharing their screen`);
       if (msg.recording && !r.recording) this.notice(`${r.name} started recording`);
-      this.setRemote(from, { muted: msg.muted, camOff: msg.camOff, hand: msg.hand, sharing: msg.sharing, recording: msg.recording });
+      this.setRemote(from, { muted: msg.muted, camOff: msg.camOff, hand: msg.hand, sharing: msg.sharing, recording: msg.recording, cc: Boolean(msg.cc) });
+      this.syncCaptions();
     } else if (msg.t === "chat") {
       const text = String(msg.text).slice(0, 2000);
-      this.set({ chat: [...this.state.chat, { id: msg.id, from, name: r.name, text, at: msg.at }] });
+      this.set({ chat: [...this.state.chat, { id: msg.id, from, name: r.name, text, at: msg.at, to: msg.private ? "self" : undefined }] });
+      if (msg.private) this.notice(`${r.name} (privately): ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
     } else if (msg.t === "react") {
       this.addReaction(from, String(msg.emoji).slice(0, 8));
     } else if (msg.t === "mute" && r.host) {
@@ -465,6 +537,12 @@ export class Meeting {
     } else if (msg.t === "lower-hand" && r.host) {
       this.setSelf({ hand: false });
       this.shareState();
+    } else if (msg.t === "spotlight" && r.host) {
+      const id = msg.id === this.state.self.id ? "self" : msg.id;
+      this.set({ spotlight: id });
+      if (id) this.notice(id === "self" ? `${r.name} spotlighted you for everyone` : `${r.name} spotlighted ${this.state.remotes.find((x) => x.id === id)?.name ?? "someone"}`);
+    } else if (msg.t === "caption") {
+      this.showCaption(from, r.name, String(msg.text).slice(0, 300));
     }
   }
 
@@ -474,7 +552,20 @@ export class Meeting {
     const muted = !this.state.self.muted;
     this.local.getAudioTracks().forEach((t) => (t.enabled = !muted));
     this.setSelf({ muted });
+    this.set({ talkingWhileMuted: false });
     this.shareState();
+    this.syncCaptions();
+  }
+
+  /** Hold the space bar to talk while muted, as in Zoom. */
+  holdToTalk(down: boolean) {
+    if (down && this.state.self.muted && !this.pushToTalk) {
+      this.pushToTalk = true;
+      this.toggleMic();
+    } else if (!down && this.pushToTalk) {
+      this.pushToTalk = false;
+      if (!this.state.self.muted) this.toggleMic();
+    }
   }
 
   async toggleCamera(deviceId?: string) {
@@ -550,12 +641,14 @@ export class Meeting {
     this.shareState();
   }
 
-  sendChat(text: string) {
+  /** Sends to everyone, or privately to one participant. */
+  sendChat(text: string, to?: string) {
     const clean = text.trim().slice(0, 2000);
     if (!clean) return;
     const msg = { id: uid(), text: clean, at: Date.now() };
-    this.broadcast({ t: "chat", ...msg });
-    this.set({ chat: [...this.state.chat, { ...msg, from: "self", name: this.state.self.name }] });
+    if (to) this.sendTo(to, { t: "chat", ...msg, private: true });
+    else this.broadcast({ t: "chat", ...msg });
+    this.set({ chat: [...this.state.chat, { ...msg, from: "self", name: this.state.self.name, to }] });
   }
 
   react(emoji: string) {
@@ -578,6 +671,79 @@ export class Meeting {
   lowerHand = (id: string) => this.sendTo(id, { t: "lower-hand" });
   muteAll = () => this.broadcast({ t: "mute" });
 
+  /** Host: put someone on everyone's main stage (or clear it with null). */
+  setSpotlight(id: string | null) {
+    if (!this.state.self.host) return;
+    this.set({ spotlight: id });
+    this.broadcast({ t: "spotlight", id: id === "self" ? this.state.self.id : id });
+  }
+
+  // ---- live captions --------------------------------------------------------------------------
+  // Each browser transcribes its own microphone (Web Speech API) while anyone in the call has
+  // captions on, and sends the text over the data channel. Audio never goes anywhere new.
+
+  toggleCaptions() {
+    if (!SpeechRecognitionImpl() && !this.state.self.cc) this.set({ captionsUnavailable: true });
+    this.setSelf({ cc: !this.state.self.cc });
+    this.shareState();
+    this.syncCaptions();
+  }
+
+  private syncCaptions() {
+    const wanted = (this.state.self.cc || this.state.remotes.some((r) => r.cc)) && !this.state.self.muted && this.state.phase === "in";
+    if (wanted && !this.recognition) this.startCaptions();
+    else if (!wanted && this.recognition) this.stopCaptions();
+  }
+
+  private startCaptions() {
+    const Impl = SpeechRecognitionImpl();
+    if (!Impl) return;
+    const rec = new Impl();
+    rec.lang = navigator.language || "en-US";
+    rec.continuous = true;
+    rec.interimResults = true;
+    let last = 0;
+    rec.onresult = (e) => {
+      const r = e.results[e.results.length - 1];
+      const text = r[0].transcript.trim();
+      if (!text) return;
+      // Interim results update often; send at most a few a second, and always the final one.
+      if (!r.isFinal && Date.now() - last < 250) return;
+      last = Date.now();
+      this.broadcast({ t: "caption", text });
+      this.showCaption("self", this.state.self.name, text);
+    };
+    // Recognition stops on its own after a silence; keep it going while captions are wanted.
+    rec.onend = () => {
+      if (this.recognition === rec) setTimeout(() => this.recognition === rec && rec.start(), 250);
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        this.recognition = null;
+        this.set({ captionsUnavailable: true });
+      }
+    };
+    this.recognition = rec;
+    try {
+      rec.start();
+    } catch {
+      this.recognition = null;
+    }
+  }
+
+  private stopCaptions() {
+    const rec = this.recognition;
+    this.recognition = null;
+    rec?.stop();
+  }
+
+  private showCaption(from: string, name: string, text: string) {
+    if (!this.state.self.cc) return;
+    const at = Date.now();
+    this.set({ captions: [...this.state.captions.filter((c) => c.from !== from && at - c.at < 6000), { from, name, text, at }].slice(-3) });
+    setTimeout(() => this.set({ captions: this.state.captions.filter((c) => Date.now() - c.at < 5500) }), 6000);
+  }
+
   private async hostCall(action: string, target: string) {
     try {
       await this.api("", { action, target });
@@ -597,10 +763,15 @@ export class Meeting {
   private watchLocalAudio() {
     if (!this.audio) return;
     const [mic] = this.local.getAudioTracks();
+    this.levelTrack?.stop();
+    this.levelTrack = null;
     if (!mic) return;
+    // A clone keeps hearing while the real track is muted, so speech while muted can be pointed out.
+    this.levelTrack = mic.clone();
+    this.levelTrack.enabled = true;
     this.localAnalyser = this.audio.createAnalyser();
     this.localAnalyser.fftSize = 512;
-    this.audio.createMediaStreamSource(new MediaStream([mic])).connect(this.localAnalyser);
+    this.audio.createMediaStreamSource(new MediaStream([this.levelTrack])).connect(this.localAnalyser);
   }
 
   private measure() {
@@ -611,7 +782,14 @@ export class Meeting {
       a.getFloatTimeDomainData(buf);
       return Math.sqrt(buf.reduce((s, v) => s + v * v, 0) / buf.length);
     };
-    const levels: [string, number][] = [["self", this.state.self.muted ? 0 : level(this.localAnalyser)]];
+    const mine = level(this.localAnalyser);
+    if (this.state.self.muted && mine > SPEAKING * 1.5) this.loudWhileMuted++;
+    else this.loudWhileMuted = Math.max(0, this.loudWhileMuted - 1);
+    if (this.loudWhileMuted > 10 && !this.state.talkingWhileMuted) {
+      this.set({ talkingWhileMuted: true });
+      setTimeout(() => this.set({ talkingWhileMuted: false }), 4000);
+    }
+    const levels: [string, number][] = [["self", this.state.self.muted ? 0 : mine]];
     for (const [id, link] of this.links) levels.push([id, this.state.remotes.find((r) => r.id === id)?.muted ? 0 : level(link.analyser)]);
     for (const [id, v] of levels) if (v > SPEAKING) this.lastLoud.set(id, now);
     // Speaking holds for a moment after the voice drops, so highlights don't flicker between words.

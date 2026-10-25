@@ -1,9 +1,11 @@
 "use client";
 
-import { Hand, MicOff, Pin, PinOff, Radio } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Hand, MicOff, MoreHorizontal, Pin, Radio, Star } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Reaction } from "@/client/meeting";
 import { Avatar } from "./ui";
+
+export type TileAction = { label: string; run: () => void; danger?: boolean };
 
 export type TileProps = {
   id: string;
@@ -21,7 +23,11 @@ export type TileProps = {
   status?: string;
   quality?: number;
   pinned?: boolean;
-  onPin?: () => void;
+  /** The host has put this person on everyone's stage. */
+  spotlit?: boolean;
+  /** This browser's own tile. */
+  you?: boolean;
+  actions?: TileAction[];
   reactions?: Reaction[];
   size?: "lg" | "md" | "sm";
   videoRef?: (el: HTMLVideoElement | null) => void;
@@ -29,6 +35,7 @@ export type TileProps = {
 
 export function Tile(p: TileProps) {
   const video = useRef<HTMLVideoElement | null>(null);
+  const [menu, setMenu] = useState(false);
 
   useEffect(() => {
     const v = video.current;
@@ -71,20 +78,55 @@ export function Tile(p: TileProps) {
             <Hand size={15} />
           </span>
         )}
-        {p.onPin && (
-          <button
-            className="grid h-7 w-7 place-items-center rounded-full bg-black/60 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-            onClick={p.onPin}
-            aria-label={p.pinned ? `Unpin ${p.name}` : `Pin ${p.name}`}
-          >
-            {p.pinned ? <PinOff size={14} /> : <Pin size={14} />}
-          </button>
+        {p.spotlit && (
+          <span className="grid h-7 w-7 place-items-center rounded-full bg-accent text-white" title="Spotlighted for everyone">
+            <Star size={14} fill="currentColor" />
+          </span>
+        )}
+        {p.pinned && !p.spotlit && (
+          <span className="grid h-7 w-7 place-items-center rounded-full bg-black/60" title="Pinned">
+            <Pin size={14} />
+          </span>
+        )}
+        {p.actions && p.actions.length > 0 && (
+          <div className="relative">
+            <button
+              className={`grid h-7 w-7 place-items-center rounded-full bg-black/60 transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100 ${menu ? "opacity-100" : "opacity-0"}`}
+              onClick={(e) => (e.stopPropagation(), setMenu(!menu))}
+              aria-label={`Options for ${p.name}`}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+            {menu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-9 z-40 min-w-48 rounded-xl border border-line bg-panel p-1 shadow-2xl shadow-black/50" role="menu">
+                  {p.actions.map((a) => (
+                    <button
+                      key={a.label}
+                      role="menuitem"
+                      className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-raise ${a.danger ? "text-danger" : ""}`}
+                      onClick={() => {
+                        setMenu(false);
+                        a.run();
+                      }}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
       <div className="absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1 text-sm backdrop-blur-sm">
         {p.micMuted && <MicOff size={14} className="shrink-0 text-danger" aria-label="Muted" />}
-        <span className="truncate">{p.name}</span>
+        <span className="truncate">
+          {p.name}
+          {p.you && <span className="text-ink-2"> (you)</span>}
+        </span>
         {p.host && <span className="rounded bg-white/15 px-1 text-[10px] uppercase tracking-wide text-ink-2">Host</span>}
         {p.quality ? <Bars level={p.quality} /> : null}
       </div>

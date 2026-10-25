@@ -120,6 +120,44 @@ body {
   .ctl[data-off="true"] > span:first-child { background: var(--danger); color: white; }
   .ctl[data-on="true"] > span:first-child { background: var(--accent); color: white; }
 
+  /* The in-call control bar: icon over label, like desktop meeting apps. */
+  .bar-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 4rem;
+    padding: 0.4rem 0.4rem 0.3rem;
+    border-radius: 0.8rem;
+    font-size: 0.68rem;
+    color: var(--ink-2);
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .bar-btn:hover { background: var(--raise); color: var(--ink); }
+  .bar-btn > span:first-child {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 1.9rem;
+    min-width: 2.2rem;
+    color: var(--ink);
+    border-radius: 0.55rem;
+  }
+  .bar-btn[data-off="true"] > span:first-child { color: var(--danger); }
+  .bar-btn[data-on="true"] { background: rgba(109, 124, 255, 0.18); }
+  .bar-btn[data-on="true"] > span:first-child { color: var(--accent-ink); }
+  .bar-btn[data-share="true"] > span:first-child { background: #1fae63; color: white; padding: 0 0.6rem; }
+  .bar-btn[data-share="true"][data-on="true"] > span:first-child { background: var(--danger); }
+  .bar-btn[data-rec="true"] > span:first-child { color: var(--danger); }
+  .bar-btn.split { padding: 0.4rem 0.2rem 0.3rem; min-width: 4.6rem; }
+  .bar-btn.split:hover { background: transparent; }
+  .bar-btn.split > span:first-child { width: 4.2rem; }
+  .bar-btn.split > span:first-child > button:first-child { height: 1.9rem; border-radius: 0.55rem 0 0 0.55rem; }
+  .bar-btn.split > span:first-child > button:hover { background: var(--raise); }
+  .bar-btn.split .chev { display: grid; place-items: center; width: 1.3rem; height: 1.9rem; color: var(--muted); border-radius: 0 0.55rem 0.55rem 0; }
+  .bar-btn.split .chev:hover { color: var(--ink); }
+
   .tile-video { width: 100%; height: 100%; object-fit: cover; }
   .mirror { transform: scaleX(-1); }
 }

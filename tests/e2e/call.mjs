@@ -112,19 +112,37 @@ try {
     await host.locator('[data-tile$=":screen"]').waitFor({ state: "detached", timeout: 10_000 });
   });
 
-  await step("the waiting room holds a newcomer until the host admits them", async () => {
+  let late;
+  await step("the waiting room holds a newcomer until the host admits them from the notice", async () => {
     await host.click("#ctl-people");
     await host.getByRole("switch", { name: /Waiting room/ }).click();
-    const late = await person("late");
+    late = await person("late");
     await late.goto(`${BASE}/m/${code}`);
     await late.getByRole("button", { name: "Ask to join" }).waitFor({ timeout: 15_000 });
     await enter(late, "Lia Late");
     await late.getByText("Waiting for the host").waitFor();
-    await host.getByRole("button", { name: "Admit" }).click();
+    await host.locator(".toast").getByRole("button", { name: "Admit" }).click({ timeout: 15_000 });
     await remoteVideoPlaying(late, "Hana Host");
     await remoteVideoPlaying(host, "Lia Late");
     await remoteVideoPlaying(guest, "Lia Late");
     assert.equal(await tiles(host), 3);
+  });
+
+  await step("a private message reaches only its recipient", async () => {
+    await host.getByRole("button", { name: "Message Gus Guest privately" }).click();
+    await host.fill("#chat-input", "Just between us");
+    await host.keyboard.press("Enter");
+    await guest.getByText("Just between us").first().waitFor({ timeout: 10_000 });
+    await late.click("#ctl-chat");
+    await late.waitForTimeout(1500);
+    assert.equal(await late.getByText("Just between us").count(), 0);
+  });
+
+  await step("the host spotlights someone for everyone", async () => {
+    await host.click("#ctl-people");
+    await host.getByRole("button", { name: "Spotlight Gus Guest" }).click();
+    await guest.getByText("spotlighted you for everyone").waitFor({ timeout: 10_000 });
+    await late.locator('[data-tile]:has-text("Gus Guest") [title="Spotlighted for everyone"]').waitFor({ timeout: 10_000 });
     await late.context().close();
     await host.waitForFunction(() => document.querySelectorAll("[data-tile]").length === 2, null, { timeout: 45_000 });
   });

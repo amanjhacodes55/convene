@@ -1,6 +1,6 @@
 "use client";
 
-import { Hand, Link2, Lock, MicOff, Send, UserMinus, VideoOff, X } from "lucide-react";
+import { Bot, Hand, Link2, Lock, MessageSquare, MicOff, Send, Star, UserMinus, VideoOff, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Meeting, MeetingState } from "@/client/meeting";
 import { Avatar, colorFor } from "./ui";
@@ -37,8 +37,11 @@ function Linked({ text }: { text: string }) {
   );
 }
 
-export function ChatPanel({ meeting, state, onClose }: { meeting: Meeting; state: MeetingState; onClose: () => void }) {
+export function ChatPanel({ meeting, state, to, setTo, onClose }: { meeting: Meeting; state: MeetingState; to: string; setTo: (id: string) => void; onClose: () => void }) {
   const [text, setText] = useState("");
+  // A private recipient who has left falls back to everyone.
+  const recipient = state.remotes.find((r) => r.id === to);
+  const nameOf = (id: string) => state.remotes.find((r) => r.id === id)?.name ?? "someone who left";
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
@@ -50,18 +53,35 @@ export function ChatPanel({ meeting, state, onClose }: { meeting: Meeting; state
         {!state.chat.length && <p className="mt-6 text-center text-sm text-muted">Messages are only seen by people in the call and disappear when it ends.</p>}
         {state.chat.map((m, i) => {
           const mine = m.from === "self";
-          const grouped = i > 0 && state.chat[i - 1].from === m.from && m.at - state.chat[i - 1].at < 60_000;
+          const prev = state.chat[i - 1];
+          const grouped = i > 0 && prev.from === m.from && prev.to === m.to && m.at - prev.at < 60_000;
+          if (m.app) {
+            return (
+              <div key={m.id} className="rounded-xl border border-accent/30 bg-accent/10 p-3" data-app-message>
+                <div className="mb-1 flex items-center gap-2 text-xs">
+                  <Bot size={14} className="text-accent-ink" />
+                  <span className="font-semibold text-accent-ink">{m.name}</span>
+                  <span className="rounded bg-accent/25 px-1 text-[10px] font-semibold uppercase tracking-wide text-accent-ink">App</span>
+                  <span className="text-muted">{new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                </div>
+                <p className="whitespace-pre-wrap break-words text-sm text-ink">
+                  <Linked text={m.text} />
+                </p>
+              </div>
+            );
+          }
           return (
             <div key={m.id} className={grouped ? "-mt-2.5" : ""}>
               {!grouped && (
-                <div className="mb-1 flex items-baseline gap-2 text-xs">
+                <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-xs">
                   <span className="font-semibold" style={{ color: mine ? "var(--accent-ink)" : colorFor(m.name) }}>
                     {mine ? "You" : m.name}
                   </span>
+                  {m.to && <span className="text-warn">{mine ? `to ${nameOf(m.to)} (privately)` : "to you (privately)"}</span>}
                   <span className="text-muted">{new Date(m.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
                 </div>
               )}
-              <p className="whitespace-pre-wrap break-words text-sm text-ink">
+              <p className={`whitespace-pre-wrap break-words text-sm text-ink ${m.to ? "border-l-2 border-warn/60 pl-2" : ""}`}>
                 <Linked text={m.text} />
               </p>
             </div>
@@ -69,23 +89,36 @@ export function ChatPanel({ meeting, state, onClose }: { meeting: Meeting; state
         })}
       </div>
       <form
-        className="flex gap-2 p-3"
+        className="space-y-2 border-t border-line p-3"
         onSubmit={(e) => {
           e.preventDefault();
-          meeting.sendChat(text);
+          meeting.sendChat(text, recipient?.id);
           setText("");
         }}
       >
-        <input className="input h-11" placeholder="Send a message to everyone" value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} id="chat-input" />
-        <button className="btn btn-primary h-11 w-11 shrink-0 p-0" disabled={!text.trim()} aria-label="Send">
-          <Send size={17} />
-        </button>
+        <label className="flex items-center gap-2 text-xs text-ink-2">
+          To:
+          <select className={`h-7 rounded-lg border border-line bg-raise px-2 text-xs outline-none ${recipient ? "text-warn" : "text-ink"}`} value={recipient?.id ?? ""} onChange={(e) => setTo(e.target.value)} id="chat-to">
+            <option value="">Everyone</option>
+            {state.remotes.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} (privately)
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex gap-2">
+          <input className="input h-11" placeholder={recipient ? `Message ${recipient.name} privately` : "Message everyone"} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} id="chat-input" />
+          <button className="btn btn-primary h-11 w-11 shrink-0 p-0" disabled={!text.trim()} aria-label="Send">
+            <Send size={17} />
+          </button>
+        </div>
       </form>
     </Panel>
   );
 }
 
-export function PeoplePanel({ meeting, state, onClose, onCopy }: { meeting: Meeting; state: MeetingState; onClose: () => void; onCopy: () => void }) {
+export function PeoplePanel({ meeting, state, onClose, onCopy, onMessage }: { meeting: Meeting; state: MeetingState; onClose: () => void; onCopy: () => void; onMessage: (id: string) => void }) {
   const host = state.self.host;
   const people = [
     { ...state.self, id: "self", self: true, conn: "connected" },
@@ -143,6 +176,22 @@ export function PeoplePanel({ meeting, state, onClose, onCopy }: { meeting: Meet
                 aria-label="Hand raised"
               >
                 <Hand size={16} />
+              </button>
+            )}
+            {state.spotlight === p.id && <Star size={15} className="text-accent-ink" fill="currentColor" aria-label="Spotlighted" />}
+            {!p.self && (
+              <button className="grid h-7 w-7 place-items-center rounded-full text-muted opacity-0 hover:bg-raise hover:text-ink group-hover:opacity-100" onClick={() => onMessage(p.id)} aria-label={`Message ${p.name} privately`} title="Message privately">
+                <MessageSquare size={14} />
+              </button>
+            )}
+            {host && (
+              <button
+                className={`grid h-7 w-7 place-items-center rounded-full hover:bg-raise group-hover:opacity-100 ${state.spotlight === p.id ? "hidden" : "text-muted opacity-0 hover:text-ink"}`}
+                onClick={() => meeting.setSpotlight(p.id)}
+                aria-label={`Spotlight ${p.name}`}
+                title="Spotlight for everyone"
+              >
+                <Star size={14} />
               </button>
             )}
             {p.camOff && <VideoOff size={16} className="text-muted" aria-label="Camera off" />}
