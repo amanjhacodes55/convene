@@ -449,10 +449,11 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
         </div>
 
         {/* No overflow scrolling here: it would clip the React and More popovers. Narrow screens drop
-            Record, Captions and Raise hand from the bar; they stay reachable from More and React. */}
+            Record, Captions, Polls and Raise hand from the bar, and phones also Security, Share and
+            React, as Zoom's mobile app does; More has all of them. */}
         <div className="mx-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
           {self.host && (
-            <div className="relative">
+            <div className="relative max-sm:hidden">
               <Control label="Security" on={menu === "security"} onClick={() => setMenu(menu === "security" ? null : "security")} id="ctl-security" title="Security">
                 <ShieldCheck size={20} />
               </Control>
@@ -484,6 +485,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
             id="ctl-share"
             on={self.sharing}
             title={self.host || state.settings.share === "everyone" ? "Share screen" : "Only the host can share"}
+            phoneHidden
           >
             {self.sharing ? <MonitorX size={20} /> : <MonitorUp size={20} />}
           </Control>
@@ -496,7 +498,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           <Control label="Captions" on={self.cc} onClick={() => meeting.toggleCaptions()} id="ctl-cc" title={state.captionsUnavailable ? "Live captions need Chrome or Edge" : "Live captions"} wide>
             <Captions size={20} />
           </Control>
-          <div className="relative">
+          <div className="relative max-sm:hidden">
             <Control label="React" onClick={() => setMenu(menu === "react" ? null : "react")} id="ctl-react">
               <Smile size={20} />
             </Control>
@@ -524,6 +526,31 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
             </Control>
             {menu === "more" && (
               <Popover align="right">
+                {/* On phones, everything the bar leaves out. */}
+                <div className="sm:hidden">
+                  <div className="flex justify-between gap-0.5 px-1 pb-1">
+                    {EMOJI.map((e) => (
+                      <button key={e} className="grid h-10 w-10 place-items-center rounded-xl text-xl hover:bg-raise" onClick={() => (meeting.react(e), setMenu(null))} aria-label={`React ${e}`}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                  <MenuItem icon={<Hand size={16} className={self.hand ? "text-warn" : ""} />} onClick={() => (meeting.toggleHand(), setMenu(null))} id="menu-hand">
+                    {self.hand ? "Lower hand" : "Raise hand"}
+                  </MenuItem>
+                  <MenuItem icon={self.sharing ? <MonitorX size={16} /> : <MonitorUp size={16} />} onClick={() => (setMenu(null), void toggleShare())}>
+                    {self.sharing ? "Stop sharing" : "Share screen"}
+                  </MenuItem>
+                  <MenuItem icon={<BarChart3 size={16} />} onClick={() => (setMenu(null), showPanel("polls"))} id="menu-polls">
+                    Polls
+                  </MenuItem>
+                  {self.host && (
+                    <MenuItem icon={<ShieldCheck size={16} />} onClick={() => setMenu("security")} id="menu-security">
+                      Security
+                    </MenuItem>
+                  )}
+                  <div className="my-1 h-px bg-line" />
+                </div>
                 <MenuItem icon={<Radio size={16} className={self.recording ? "text-danger" : ""} />} onClick={() => void toggleRecording()} id="menu-record">
                   {self.recording ? "Stop recording" : "Record to this computer"}
                 </MenuItem>
@@ -540,6 +567,13 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
                   Keyboard shortcuts
                 </MenuItem>
               </Popover>
+            )}
+            {menu === "security" && (
+              <div className="sm:hidden">
+                <Popover align="right">
+                  <SecurityMenu settings={state.settings} set={(patch) => void meeting.updateSettings(patch)} />
+                </Popover>
+              </div>
             )}
           </div>
         </div>
@@ -639,12 +673,28 @@ function RemoteAudio({ stream, sinkId }: { stream: MediaStream; sinkId: string }
   return <audio ref={el} autoPlay />;
 }
 
-type ControlProps = { label: string; children: ReactNode; onClick: () => void; off?: boolean; on?: boolean; share?: boolean; rec?: boolean; badge?: number; count?: number; id?: string; title?: string; wide?: boolean };
+type ControlProps = {
+  label: string;
+  children: ReactNode;
+  onClick: () => void;
+  off?: boolean;
+  on?: boolean;
+  share?: boolean;
+  rec?: boolean;
+  badge?: number;
+  count?: number;
+  id?: string;
+  title?: string;
+  /** Hidden below md (tablets and phones). */
+  wide?: boolean;
+  /** Hidden below sm (phones). */
+  phoneHidden?: boolean;
+};
 
 /** A control-bar button: an icon with its label underneath, as in desktop meeting apps. */
 function Control(p: ControlProps) {
   return (
-    <button className={`bar-btn ${p.wide ? "max-md:hidden" : ""}`} data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
+    <button className={`bar-btn ${p.wide ? "max-md:hidden" : p.phoneHidden ? "max-sm:hidden" : ""}`} data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
       <span>
         {p.children}
         {p.count ? <i className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-raise px-1 text-[10px] font-semibold not-italic text-ink ring-2 ring-[#0a0b0f]">{p.count}</i> : null}
@@ -663,7 +713,7 @@ function Split(p: { label: string; children: ReactNode; onClick: () => void; onM
         <button className="grid h-full w-full place-items-center" onClick={p.onClick} aria-label={p.label} title={p.title} id={p.id}>
           {p.children}
         </button>
-        <button className="chev" onClick={p.onMenu} aria-label={`${p.label.includes("video") ? "Camera" : "Audio"} options`} aria-expanded={p.open}>
+        <button className="chev max-sm:hidden" onClick={p.onMenu} aria-label={`${p.label.includes("video") ? "Camera" : "Audio"} options`} aria-expanded={p.open}>
           {p.open ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
       </span>
