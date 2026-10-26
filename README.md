@@ -186,8 +186,10 @@ I build Convene on my own time and keep it free for everyone. If it saved you ti
 something you're building, a coffee is the kindest way to say thanks, and every one buys me more hours to build
 and improve Convene and my other open-source projects.
 
-**UPI: +91 8941951465**. Pay from any UPI app (Google Pay, PhonePe, Paytm, BHIM); international payments are
-welcome too.
+<img src="https://raw.githubusercontent.com/amanjhacodes55/wick/main/docs/media/upi-qr.png" alt="UPI QR code for 8941951465@axl" width="180" align="right" />
+
+**UPI ID: `8941951465@axl`** (or **+91 8941951465**). Scan the code with Google Pay, PhonePe, Paytm, BHIM or
+any UPI app; international payments are welcome too.
 
 However small, every coffee keeps the work going. Thank you!
 
