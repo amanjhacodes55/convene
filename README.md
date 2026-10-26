@@ -180,6 +180,11 @@ runs the web meeting page in a WebView, so everything but screen sharing works a
 
 <img src="android/docs/screenshots/home.png" alt="Convene for Android: home screen" width="260" />
 
+## Support
+
+Convene is free and open source. If it saves you time or money, you can **buy me a coffee** ☕ over UPI
+(Google Pay, PhonePe, Paytm, BHIM) at **+91 8941951465**. Starring the repository helps too.
+
 ## License
 
 [MIT](LICENSE)
