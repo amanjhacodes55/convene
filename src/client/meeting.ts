@@ -7,6 +7,8 @@
 // Turning the camera off or starting a share only swaps tracks (replaceTrack), so the call never
 // renegotiates after it is set up, and both sides know which incoming track is which by position.
 
+import { BackgroundEffect, saveEffect, savedEffect, type Effect } from "./effects";
+
 /** Hosts also get people's email and phone (when known), for follow-up. */
 export type PublicPeer = { id: string; name: string; joinedAt: number; host: boolean; cohost?: boolean; email?: string; phone?: string };
 export type Settings = {
@@ -45,6 +47,15 @@ export type Notice = { id: string; text: string; action?: { label: string; run: 
 /** One speaker's latest line of live captions. */
 export type Caption = { from: string; name: string; text: string; at: number };
 
+/**
+ * One mark on the whiteboard. Points are flat [x, y, x, y, …] on a 1600×900 board. Pens and
+ * highlighters are freehand; lines, arrows, boxes and ellipses have two points; text has one.
+ */
+export type Stroke = { id: string; from: string; tool: "pen" | "marker" | "line" | "arrow" | "rect" | "ellipse" | "text"; color: string; size: number; points: number[]; text?: string };
+export const BOARD_W = 1600;
+export const BOARD_H = 900;
+const TOOLS = new Set<Stroke["tool"]>(["pen", "marker", "line", "arrow", "rect", "ellipse", "text"]);
+
 export type MeetingState = {
   phase: Phase;
   error: string | null;
@@ -69,6 +80,10 @@ export type MeetingState = {
   /** The microphone is muted but the user seems to be talking. */
   talkingWhileMuted: boolean;
   polls: Poll[];
+  /** The open whiteboard and who opened it ("self" for this user); its strokes are in meeting.board. */
+  board: { by: string } | null;
+  /** This user's background effect. */
+  effect: Effect;
 };
 
 type Link = {
@@ -95,7 +110,13 @@ type Wire =
   | { t: "caption"; text: string }
   | { t: "poll"; id: string; question: string; options: string[] }
   | { t: "vote"; id: string; option: number }
-  | { t: "poll-results"; id: string; counts: number[]; closed: boolean };
+  | { t: "poll-results"; id: string; counts: number[]; closed: boolean }
+  | { t: "board-open"; by: string }
+  | { t: "board-strokes"; strokes: Stroke[] }
+  | { t: "stroke-add"; id: string; points: number[]; replace?: boolean }
+  | { t: "strokes-del"; ids: string[] }
+  | { t: "board-clear" }
+  | { t: "board-close" };
 
 type Recognition = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onend: (() => void) | null; onerror: ((e: { error: string }) => void) | null };
 const SpeechRecognitionImpl = () => (globalThis as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition }).SpeechRecognition ?? (globalThis as unknown as { webkitSpeechRecognition?: new () => Recognition }).webkitSpeechRecognition;
@@ -142,6 +163,10 @@ export class Meeting {
   private pushToTalk = false;
   /** Poll votes received, by poll and voter, for the polls this user asked. */
   private votes = new Map<string, Map<string, number>>();
+  /** The whiteboard's strokes, in drawing order. Kept out of the React state: they change on every pointer move. */
+  board = new Map<string, Stroke>();
+  private boardListeners = new Set<() => void>();
+  private effect: BackgroundEffect | null = null;
   /** Sound effects for joins, leaves and knocks; off for tests and recordings with ?quiet. */
   sounds = true;
 
@@ -176,7 +201,10 @@ export class Meeting {
       captionsUnavailable: false,
       talkingWhileMuted: false,
       polls: [],
+      board: null,
+      effect: savedEffect(),
     };
+    if (camOn && this.state.effect !== "none") this.effect = new BackgroundEffect(local.getVideoTracks()[0], this.state.effect);
   }
 
   // ---- React plumbing -------------------------------------------------------------------------
@@ -295,6 +323,8 @@ export class Meeting {
     this.links.clear();
     this.local.getTracks().forEach((t) => t.stop());
     this.screenTrack?.stop();
+    this.effect?.stop();
+    this.effect = null;
     void this.audio?.close();
     this.set({ phase, remotes: [] });
   }
@@ -472,12 +502,19 @@ export class Meeting {
         this.sendTo(id, { t: "poll", id: p.id, question: p.question, options: p.options });
         if (p.closed) this.sendTo(id, { t: "poll-results", id: p.id, counts: p.counts, closed: true });
       }
+      // Everyone with the whiteboard open catches newcomers up; strokes are merged by id.
+      const board = this.state.board;
+      if (board) {
+        this.sendTo(id, { t: "board-open", by: board.by === "self" ? this.state.self.id : board.by });
+        const all = [...this.board.values()];
+        for (let i = 0; i < all.length; i += 40) this.sendTo(id, { t: "board-strokes", strokes: all.slice(i, i + 40).map((s) => ({ ...s, from: s.from === "self" ? this.state.self.id : s.from })) });
+      }
     };
     dc.onmessage = (e) => this.onWire(id, JSON.parse(e.data));
 
     if (offerer) {
       const [mic] = this.local.getAudioTracks();
-      const [cam] = this.local.getVideoTracks();
+      const cam = this.camera();
       pc.addTransceiver(mic ?? "audio", { direction: "sendrecv" });
       pc.addTransceiver(cam ?? "video", { direction: "sendrecv" });
       pc.addTransceiver(this.screenTrack ?? "video", { direction: "sendrecv" });
@@ -520,7 +557,7 @@ export class Meeting {
         const [mic, cam, screen] = link.pc.getTransceivers();
         mic.direction = cam.direction = screen.direction = "sendrecv";
         await mic.sender.replaceTrack(this.local.getAudioTracks()[0] ?? null);
-        await cam.sender.replaceTrack(this.local.getVideoTracks()[0] ?? null);
+        await cam.sender.replaceTrack(this.camera());
         await screen.sender.replaceTrack(this.screenTrack);
         this.bindIncoming(from, link);
       }
@@ -624,6 +661,38 @@ export class Meeting {
     } else if (msg.t === "poll-results") {
       const poll = this.state.polls.find((p) => p.id === msg.id && p.from === from);
       if (poll && Array.isArray(msg.counts)) this.setPoll(poll.id, { counts: msg.counts.map((n) => Number(n) || 0), closed: Boolean(msg.closed) });
+    } else if (msg.t === "board-open") {
+      if (this.state.board) return;
+      if (!r.host && this.state.settings.share === "host") return;
+      const by = msg.by === this.state.self.id ? "self" : this.state.remotes.some((x) => x.id === msg.by) ? msg.by : from;
+      this.set({ board: { by } });
+      this.board.clear();
+      this.boardChanged();
+      if (by === from) this.notice(`${r.name} opened a whiteboard`);
+    } else if (msg.t === "board-strokes") {
+      if (!this.state.board || !Array.isArray(msg.strokes)) return;
+      for (const raw of msg.strokes.slice(0, 40)) {
+        const s = cleanStroke(raw, raw?.from === this.state.self.id ? "self" : String(raw?.from ?? from));
+        if (s && !this.board.has(s.id) && this.board.size < 5000) this.board.set(s.id, s);
+      }
+      this.boardChanged();
+    } else if (msg.t === "stroke-add") {
+      const s = this.board.get(String(msg.id));
+      if (!s || s.from !== from || !Array.isArray(msg.points)) return;
+      const pts = cleanPoints(msg.points);
+      s.points = msg.replace ? pts : [...s.points, ...pts].slice(0, 8000);
+      this.boardChanged();
+    } else if (msg.t === "strokes-del") {
+      if (!Array.isArray(msg.ids)) return;
+      for (const id of msg.ids.slice(0, 500)) this.board.delete(String(id));
+      this.boardChanged();
+    } else if ((msg.t === "board-clear" || msg.t === "board-close") && this.state.board && this.mayManageBoard(from)) {
+      this.board.clear();
+      this.boardChanged();
+      if (msg.t === "board-close") {
+        this.set({ board: null });
+        this.notice(`${r.name} closed the whiteboard`);
+      } else this.notice(`${r.name} cleared the whiteboard`);
     }
   }
 
@@ -659,16 +728,49 @@ export class Meeting {
         t.stop();
         this.local.removeTrack(t);
       });
+      this.effect?.stop();
+      this.effect = null;
       await this.replace(1, null);
       this.setSelf({ camOff: true });
     } else {
       const s = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(deviceId) });
       const [track] = s.getVideoTracks();
       this.local.addTrack(track);
-      await this.replace(1, track);
+      if (this.state.effect !== "none") this.effect = new BackgroundEffect(track, this.state.effect);
+      await this.replace(1, this.camera());
       this.setSelf({ camOff: false });
     }
     this.shareState();
+  }
+
+  /** The camera as others see it: with the background effect applied, if there is one. */
+  camera() {
+    return this.effect?.track ?? this.local.getVideoTracks()[0] ?? null;
+  }
+
+  /** What the self view shows: the microphone and the camera as sent. */
+  preview() {
+    const cam = this.camera();
+    return new MediaStream([...this.local.getAudioTracks(), ...(cam ? [cam] : [])]);
+  }
+
+  /** Blurs or replaces the background, or turns that off; remembered for next time. */
+  async setEffect(effect: Effect) {
+    saveEffect(effect);
+    const [raw] = this.local.getVideoTracks();
+    if (!raw) return this.set({ effect });
+    if (effect === "none") {
+      const old = this.effect;
+      this.effect = null;
+      await this.replace(1, raw);
+      old?.stop();
+    } else if (this.effect) this.effect.setMode(effect);
+    else {
+      this.effect = new BackgroundEffect(raw, effect);
+      await this.replace(1, this.effect.track);
+    }
+    // Set last: the self view picks up the track from here.
+    this.set({ effect });
   }
 
   /** Switches the microphone or camera to another device without dropping the call. */
@@ -684,7 +786,8 @@ export class Meeting {
       this.local.removeTrack(t);
     });
     this.local.addTrack(track);
-    await this.replace(video ? 1 : 0, track);
+    if (video && this.effect) this.effect.setSource(track);
+    else await this.replace(video ? 1 : 0, track);
     if (!video) this.watchLocalAudio();
   }
 
@@ -813,6 +916,81 @@ export class Meeting {
     if (!this.state.self.host) return;
     this.set({ spotlight: id });
     this.broadcast({ t: "spotlight", id: id === "self" ? this.state.self.id : id });
+  }
+
+  // ---- whiteboard -----------------------------------------------------------------------------
+  // A shared board drawn over the data channel, like Zoom's: whoever may share their screen can open
+  // one, and everyone can draw on it. Each stroke goes out as it's drawn, a few points at a time.
+
+  onBoard = (fn: () => void) => {
+    this.boardListeners.add(fn);
+    return () => void this.boardListeners.delete(fn);
+  };
+  private boardChanged() {
+    this.boardListeners.forEach((fn) => fn());
+  }
+
+  /** The host, whoever opened the board, or anyone once they've left, may clear or close it. */
+  mayManageBoard(who: string) {
+    const board = this.state.board;
+    if (!board) return false;
+    const host = who === "self" ? this.state.self.host : Boolean(this.state.remotes.find((r) => r.id === who)?.host);
+    const openerHere = board.by === "self" || this.state.remotes.some((r) => r.id === board.by);
+    return host || board.by === who || !openerHere;
+  }
+
+  openBoard() {
+    if (this.state.board) return;
+    if (this.state.settings.share === "host" && !this.state.self.host) {
+      this.notice("Only the host can share a whiteboard");
+      return;
+    }
+    this.board.clear();
+    this.set({ board: { by: "self" } });
+    this.boardChanged();
+    this.broadcast({ t: "board-open", by: this.state.self.id });
+  }
+
+  closeBoard() {
+    if (!this.mayManageBoard("self")) return;
+    this.board.clear();
+    this.set({ board: null });
+    this.boardChanged();
+    this.broadcast({ t: "board-close" });
+  }
+
+  clearBoard() {
+    if (!this.mayManageBoard("self")) return;
+    this.board.clear();
+    this.boardChanged();
+    this.broadcast({ t: "board-clear" });
+  }
+
+  /** Starts a stroke of this user's; returns its id. */
+  draw(stroke: Omit<Stroke, "id" | "from">) {
+    const s = cleanStroke({ ...stroke, id: uid() }, "self");
+    if (!s || !this.state.board) return null;
+    this.board.set(s.id, s);
+    this.boardChanged();
+    this.broadcast({ t: "board-strokes", strokes: [{ ...s, from: this.state.self.id }] });
+    return s.id;
+  }
+
+  /** Adds points to a freehand stroke, or with `replace` (shapes), moves its end. */
+  extend(id: string, points: number[], replace = false) {
+    const s = this.board.get(id);
+    if (!s || s.from !== "self") return;
+    const pts = cleanPoints(points);
+    s.points = replace ? pts : [...s.points, ...pts].slice(0, 8000);
+    this.boardChanged();
+    this.broadcast({ t: "stroke-add", id, points: pts, replace });
+  }
+
+  erase(ids: string[]) {
+    const gone = ids.filter((id) => this.board.delete(id));
+    if (!gone.length) return;
+    this.boardChanged();
+    this.broadcast({ t: "strokes-del", ids: gone });
   }
 
   // ---- live captions --------------------------------------------------------------------------
@@ -954,6 +1132,26 @@ export class Meeting {
       if (this.state.remotes.find((r) => r.id === id)?.quality !== quality) this.setRemote(id, { quality });
     }
   }
+}
+
+const COLOR = /^#[0-9a-f]{6}$/i;
+const cleanPoints = (points: unknown[]) =>
+  points
+    .slice(0, 4000)
+    .map((n, i) => Math.round(Math.min(i % 2 ? BOARD_H : BOARD_W, Math.max(0, Number(n) || 0))));
+/** A stroke from the wire, checked and trimmed; null if it isn't one. */
+function cleanStroke(raw: Partial<Stroke> | null | undefined, from: string): Stroke | null {
+  if (!raw || typeof raw.id !== "string" || !TOOLS.has(raw.tool as Stroke["tool"]) || !Array.isArray(raw.points)) return null;
+  const s: Stroke = {
+    id: raw.id.slice(0, 16),
+    from,
+    tool: raw.tool as Stroke["tool"],
+    color: COLOR.test(String(raw.color)) ? String(raw.color) : "#111111",
+    size: Math.min(120, Math.max(1, Number(raw.size) || 4)),
+    points: cleanPoints(raw.points),
+  };
+  if (s.tool === "text") s.text = String(raw.text ?? "").slice(0, 500);
+  return s;
 }
 
 export const videoConstraints = (deviceId?: string): MediaTrackConstraints => ({

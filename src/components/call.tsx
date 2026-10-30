@@ -20,23 +20,28 @@ import {
   MonitorX,
   MoreHorizontal,
   PhoneOff,
+  Presentation,
   Radio,
   Settings,
   ShieldCheck,
   Smile,
+  Sparkles,
   Square,
   Users,
   Video,
   VideoOff,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import type { Effect } from "@/client/effects";
 import type { Meeting, MeetingState, Settings as RoomSettings } from "@/client/meeting";
 import { Recorder } from "@/client/recorder";
+import { EffectPicker } from "./effects";
 import { listDevices } from "./lobby";
 import { ChatPanel, PeoplePanel, PollsPanel } from "./panels";
 import { Tile, type TileAction, type TileProps } from "./tile";
 import { Avatar } from "./ui";
+import { Whiteboard } from "./whiteboard";
 
 const EMOJI = ["👍", "❤️", "😂", "😮", "👏", "🎉"];
 
@@ -63,7 +68,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
   const [layout, setLayout] = useState<Layout>("grid");
   const [pin, setPinned] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu>(null);
-  const [dialog, setDialog] = useState<"settings" | "shortcuts" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "shortcuts" | "effects" | null>(null);
   const [hideSelf, setHideSelf] = useState(false);
   const [chatTo, setChatTo] = useState<string>("");
   const [seenChat, setSeenChat] = useState(0);
@@ -83,8 +88,8 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
     setPanel(next);
   };
 
-  // A fresh MediaStream when the camera changes, so the self view picks up a re-acquired track.
-  const selfStream = useMemo(() => new MediaStream(meeting.local.getTracks()), [meeting, self.camOff]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A fresh MediaStream when the camera or its effect changes, so the self view picks up the new track.
+  const selfStream = useMemo(() => meeting.preview(), [meeting, self.camOff, state.effect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reactionsOf = (id: string) => state.reactions.filter((r) => r.from === id);
   const ref = (id: string) => (el: HTMLVideoElement | null) => (el ? videos.set(id, el) : videos.delete(id));
@@ -143,13 +148,15 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
   const presenter = [...remotes].reverse().find((r) => r.sharing && (r.host || state.settings.share === "everyone"));
   const visible = hideSelf && tiles.length > 1 ? tiles.filter((t) => t.id !== "self") : tiles;
 
-  // What fills the stage: someone's screen, the spotlit, pinned or speaking person, or a grid.
+  // What fills the stage: someone's screen, the whiteboard, the spotlit, pinned or speaking person, or a grid.
   let main: ReactNode = null;
   let strip: TileProps[] = visible;
   if (presenter) {
     main = <Tile id={`${presenter.id}:screen`} name={`${presenter.name}'s screen`} stream={presenter.screen} showVideo screen size="lg" />;
   } else if (self.sharing) {
     main = <SelfShare meeting={meeting} />;
+  } else if (state.board) {
+    main = <Whiteboard meeting={meeting} state={state} />;
   } else if (spotlight || pinned || layout === "speaker") {
     const focus =
       tiles.find((t) => t.id === spotlight) ?? tiles.find((t) => t.id === pinned) ?? tiles.find((t) => t.id === state.activeSpeaker && t.id !== "self") ?? tiles[1] ?? tiles[0];
@@ -197,6 +204,13 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
     meeting.toast("Invitation copied");
   }
 
+  function toggleBoard() {
+    setMenu(null);
+    if (!state.board) meeting.openBoard();
+    else if (meeting.mayManageBoard("self")) meeting.closeBoard();
+    else meeting.toast("Only the host or whoever opened the whiteboard can close it");
+  }
+
   const openDevices = async (m: "mic" | "cam") => {
     setMenu(menu === m ? null : m);
     setDevices(await listDevices());
@@ -236,6 +250,144 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
   const recording = self.recording || remotes.some((r) => r.recording);
   const host = remotes.find((r) => r.host)?.name ?? (self.host ? self.name : "");
 
+  // The bar holds as many of these as fit, in this order, between Chat and More; the rest move into
+  // More, as Zoom and Meet do on narrow windows and phones.
+  const canShare = self.host || state.settings.share === "everyone";
+  const unvoted = state.polls.filter((p) => !p.mine && p.voted === null && !p.closed).length;
+  const emoji = (after?: () => void) =>
+    EMOJI.map((e) => (
+      <button key={e} className="grid h-10 w-10 place-items-center rounded-xl text-xl transition-transform hover:scale-110 hover:bg-raise sm:h-11 sm:w-11 sm:text-2xl" onClick={() => (meeting.react(e), after?.())} aria-label={`React ${e}`}>
+        {e}
+      </button>
+    ));
+  const extras: { key: string; bar: ReactNode; menu: ReactNode; badge?: number }[] = [
+    {
+      key: "share",
+      bar: (
+        <Control label={self.sharing ? "Stop share" : "Share"} share={canShare} onClick={() => void toggleShare()} id="ctl-share" on={self.sharing} title={canShare ? "Share screen" : "Only the host can share"}>
+          {self.sharing ? <MonitorX size={20} /> : <MonitorUp size={20} />}
+        </Control>
+      ),
+      menu: (
+        <MenuItem icon={self.sharing ? <MonitorX size={16} /> : <MonitorUp size={16} />} onClick={() => (setMenu(null), void toggleShare())} id="menu-share">
+          {self.sharing ? "Stop sharing" : "Share screen"}
+        </MenuItem>
+      ),
+    },
+    {
+      key: "react",
+      bar: (
+        <div className="relative">
+          <Control label="React" onClick={() => setMenu(menu === "react" ? null : "react")} id="ctl-react">
+            <Smile size={20} />
+          </Control>
+          {menu === "react" && (
+            <Popover>
+              <div className="flex justify-between gap-1 p-1.5">{emoji()}</div>
+              <button className="flex w-full items-center justify-center gap-2 rounded-xl border-t border-line px-3 py-2 text-sm hover:bg-raise" onClick={() => (meeting.toggleHand(), setMenu(null))}>
+                <Hand size={16} className="text-warn" /> {self.hand ? "Lower hand" : "Raise hand"}
+              </button>
+            </Popover>
+          )}
+        </div>
+      ),
+      menu: <div className="flex justify-between gap-0.5 px-1 pb-1">{emoji(() => setMenu(null))}</div>,
+    },
+    ...(self.host
+      ? [
+          {
+            key: "security",
+            bar: (
+              <div className="relative">
+                <Control label="Security" on={menu === "security"} onClick={() => setMenu(menu === "security" ? null : "security")} id="ctl-security" title="Security">
+                  <ShieldCheck size={20} />
+                </Control>
+                {menu === "security" && (
+                  <Popover align="left" offset={-40}>
+                    <SecurityMenu settings={state.settings} set={(patch) => void meeting.updateSettings(patch)} />
+                  </Popover>
+                )}
+              </div>
+            ),
+            menu: (
+              <MenuItem icon={<ShieldCheck size={16} />} onClick={() => setMenu("security")} id="menu-security">
+                Security
+              </MenuItem>
+            ),
+          },
+        ]
+      : []),
+    {
+      key: "hand",
+      bar: (
+        <Control label={self.hand ? "Lower hand" : "Raise hand"} on={self.hand} onClick={() => meeting.toggleHand()} id="ctl-hand" title="Raise hand (H)">
+          <Hand size={20} />
+        </Control>
+      ),
+      menu: (
+        <MenuItem icon={<Hand size={16} className={self.hand ? "text-warn" : ""} />} onClick={() => (meeting.toggleHand(), setMenu(null))} id="menu-hand">
+          {self.hand ? "Lower hand" : "Raise hand"}
+        </MenuItem>
+      ),
+    },
+    {
+      key: "board",
+      bar: (
+        <Control label="Whiteboard" on={Boolean(state.board)} onClick={toggleBoard} id="ctl-board" title={canShare ? "Whiteboard" : "Only the host can open a whiteboard"}>
+          <Presentation size={20} />
+        </Control>
+      ),
+      menu: (
+        <MenuItem icon={<Presentation size={16} className={state.board ? "text-accent-ink" : ""} />} onClick={toggleBoard} id="menu-board">
+          {state.board ? "Close whiteboard" : "Whiteboard"}
+        </MenuItem>
+      ),
+    },
+    {
+      key: "polls",
+      badge: unvoted,
+      bar: (
+        <Control label="Polls" on={panel === "polls"} badge={unvoted} onClick={() => showPanel(panel === "polls" ? null : "polls")} id="ctl-polls">
+          <BarChart3 size={20} />
+        </Control>
+      ),
+      menu: (
+        <MenuItem icon={<BarChart3 size={16} />} onClick={() => (setMenu(null), showPanel("polls"))} id="menu-polls">
+          Polls{unvoted ? <b className="ml-auto rounded-full bg-danger px-1.5 text-[10px] text-white">{unvoted}</b> : null}
+        </MenuItem>
+      ),
+    },
+    {
+      key: "captions",
+      bar: (
+        <Control label="Captions" on={self.cc} onClick={() => meeting.toggleCaptions()} id="ctl-cc" title={state.captionsUnavailable ? "Live captions need Chrome or Edge" : "Live captions"}>
+          <Captions size={20} />
+        </Control>
+      ),
+      menu: (
+        <MenuItem icon={<Captions size={16} className={self.cc ? "text-accent-ink" : ""} />} onClick={() => (meeting.toggleCaptions(), setMenu(null))} id="menu-cc">
+          {self.cc ? "Turn off captions" : "Live captions"}
+        </MenuItem>
+      ),
+    },
+    {
+      key: "record",
+      bar: (
+        <Control label={self.recording ? "Stop rec." : "Record"} onClick={() => void toggleRecording()} id="ctl-record" rec={self.recording} title="Record to this computer">
+          {self.recording ? <Square size={17} fill="currentColor" /> : <Radio size={20} />}
+        </Control>
+      ),
+      menu: (
+        <MenuItem icon={<Radio size={16} className={self.recording ? "text-danger" : ""} />} onClick={() => void toggleRecording()} id="menu-record">
+          {self.recording ? "Stop recording" : "Record to this computer"}
+        </MenuItem>
+      ),
+    },
+  ];
+  const { footerRef, leftRef, middleRef, rightRef, moreRef, room } = useFit();
+  const inBar = extras.slice(0, room);
+  const inMore = extras.slice(room);
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#0a0b0f]" onClick={() => menu && setMenu(null)}>
       <header className="flex h-12 shrink-0 items-center gap-2 px-3">
@@ -252,7 +404,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           </button>
           {menu === "info" && (
             <Popover place="below">
-              <div className="w-80 p-3">
+              <div className="w-full p-3 sm:w-80">
                 <h3 className="font-semibold">{state.title}</h3>
                 <dl className="mt-3 grid grid-cols-[96px_1fr] gap-y-2 text-sm">
                   <dt className="text-muted">Meeting ID</dt>
@@ -399,8 +551,8 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
         </div>
       )}
 
-      <footer className="relative flex h-[76px] shrink-0 items-center gap-1 px-3 sm:gap-2" onClick={(e) => e.stopPropagation()}>
-        <div className="relative flex items-center gap-1">
+      <footer ref={footerRef} className="relative flex h-[76px] shrink-0 items-center gap-1 px-3 sm:gap-2" onClick={(e) => e.stopPropagation()}>
+        <div ref={leftRef} className="relative flex shrink-0 items-center gap-1">
           <Split
             label={self.muted ? "Unmute" : "Mute"}
             off={self.muted}
@@ -441,6 +593,11 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
                 sections={[
                   { title: "Camera", list: devices?.videoinput ?? [], value: meeting.local.getVideoTracks()[0]?.getSettings().deviceId ?? "", pick: (id) => (writePref("convene:camera", id), void meeting.switchDevice("videoinput", id)) },
                 ]}
+                extra={
+                  <MenuItem icon={<Sparkles size={16} />} onClick={() => (setMenu(null), setDialog("effects"))} id="menu-cam-effects">
+                    Backgrounds and effects…
+                  </MenuItem>
+                }
                 onSettings={() => (setMenu(null), setDialog("settings"))}
                 settingsLabel="Video settings…"
               />
@@ -448,22 +605,8 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           )}
         </div>
 
-        {/* No overflow scrolling here: it would clip the React and More popovers. Narrow screens drop
-            Record, Captions, Polls and Raise hand from the bar, and phones also Security, Share and
-            React, as Zoom's mobile app does; More has all of them. */}
-        <div className="mx-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
-          {self.host && (
-            <div className="relative max-sm:hidden">
-              <Control label="Security" on={menu === "security"} onClick={() => setMenu(menu === "security" ? null : "security")} id="ctl-security" title="Security">
-                <ShieldCheck size={20} />
-              </Control>
-              {menu === "security" && (
-                <Popover align="left" offset={-40}>
-                  <SecurityMenu settings={state.settings} set={(patch) => void meeting.updateSettings(patch)} />
-                </Popover>
-              )}
-            </div>
-          )}
+        {/* Never scrolls: that would clip the popovers. useFit decides how many extras fit instead. */}
+        <div ref={middleRef} className="mx-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
           <Control
             label="Participants"
             on={panel === "people"}
@@ -478,84 +621,27 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           <Control label="Chat" on={panel === "chat"} badge={unread} onClick={() => showPanel(panel === "chat" ? null : "chat")} id="ctl-chat" title="Chat (C)">
             <MessageSquare size={20} />
           </Control>
-          <Control
-            label={self.sharing ? "Stop share" : "Share"}
-            share={self.host || state.settings.share === "everyone"}
-            onClick={() => void toggleShare()}
-            id="ctl-share"
-            on={self.sharing}
-            title={self.host || state.settings.share === "everyone" ? "Share screen" : "Only the host can share"}
-            phoneHidden
-          >
-            {self.sharing ? <MonitorX size={20} /> : <MonitorUp size={20} />}
-          </Control>
-          <Control label={self.recording ? "Stop rec." : "Record"} onClick={() => void toggleRecording()} id="ctl-record" rec={self.recording} title="Record to this computer" wide>
-            {self.recording ? <Square size={17} fill="currentColor" /> : <Radio size={20} />}
-          </Control>
-          <Control label="Polls" on={panel === "polls"} badge={state.polls.filter((p) => !p.mine && p.voted === null && !p.closed).length} onClick={() => showPanel(panel === "polls" ? null : "polls")} id="ctl-polls" wide>
-            <BarChart3 size={20} />
-          </Control>
-          <Control label="Captions" on={self.cc} onClick={() => meeting.toggleCaptions()} id="ctl-cc" title={state.captionsUnavailable ? "Live captions need Chrome or Edge" : "Live captions"} wide>
-            <Captions size={20} />
-          </Control>
-          <div className="relative max-sm:hidden">
-            <Control label="React" onClick={() => setMenu(menu === "react" ? null : "react")} id="ctl-react">
-              <Smile size={20} />
-            </Control>
-            {menu === "react" && (
-              <Popover>
-                <div className="flex gap-1 p-1.5">
-                  {EMOJI.map((e) => (
-                    <button key={e} className="grid h-11 w-11 place-items-center rounded-xl text-2xl transition-transform hover:scale-110 hover:bg-raise" onClick={() => meeting.react(e)} aria-label={`React ${e}`}>
-                      {e}
-                    </button>
-                  ))}
-                </div>
-                <button className="flex w-full items-center justify-center gap-2 rounded-xl border-t border-line px-3 py-2 text-sm hover:bg-raise" onClick={() => (meeting.toggleHand(), setMenu(null))}>
-                  <Hand size={16} className="text-warn" /> {self.hand ? "Lower hand" : "Raise hand"}
-                </button>
-              </Popover>
-            )}
-          </div>
-          <Control label={self.hand ? "Lower hand" : "Raise hand"} on={self.hand} onClick={() => meeting.toggleHand()} id="ctl-hand" title="Raise hand (H)" wide>
-            <Hand size={20} />
-          </Control>
+          {inBar.map((x) => (
+            <div key={x.key} className="contents">
+              {x.bar}
+            </div>
+          ))}
           <div className="relative">
-            <Control label="More" onClick={() => setMenu(menu === "more" ? null : "more")} id="ctl-more">
+            <Control label="More" onClick={() => setMenu(menu === "more" ? null : "more")} id="ctl-more" badge={inMore.reduce((n, x) => n + (x.badge ?? 0), 0)} ref={moreRef}>
               <MoreHorizontal size={20} />
             </Control>
             {menu === "more" && (
               <Popover align="right">
-                {/* On phones, everything the bar leaves out. */}
-                <div className="sm:hidden">
-                  <div className="flex justify-between gap-0.5 px-1 pb-1">
-                    {EMOJI.map((e) => (
-                      <button key={e} className="grid h-10 w-10 place-items-center rounded-xl text-xl hover:bg-raise" onClick={() => (meeting.react(e), setMenu(null))} aria-label={`React ${e}`}>
-                        {e}
-                      </button>
+                {inMore.length > 0 && (
+                  <>
+                    {inMore.map((x) => (
+                      <div key={x.key}>{x.menu}</div>
                     ))}
-                  </div>
-                  <MenuItem icon={<Hand size={16} className={self.hand ? "text-warn" : ""} />} onClick={() => (meeting.toggleHand(), setMenu(null))} id="menu-hand">
-                    {self.hand ? "Lower hand" : "Raise hand"}
-                  </MenuItem>
-                  <MenuItem icon={self.sharing ? <MonitorX size={16} /> : <MonitorUp size={16} />} onClick={() => (setMenu(null), void toggleShare())}>
-                    {self.sharing ? "Stop sharing" : "Share screen"}
-                  </MenuItem>
-                  <MenuItem icon={<BarChart3 size={16} />} onClick={() => (setMenu(null), showPanel("polls"))} id="menu-polls">
-                    Polls
-                  </MenuItem>
-                  {self.host && (
-                    <MenuItem icon={<ShieldCheck size={16} />} onClick={() => setMenu("security")} id="menu-security">
-                      Security
-                    </MenuItem>
-                  )}
-                  <div className="my-1 h-px bg-line" />
-                </div>
-                <MenuItem icon={<Radio size={16} className={self.recording ? "text-danger" : ""} />} onClick={() => void toggleRecording()} id="menu-record">
-                  {self.recording ? "Stop recording" : "Record to this computer"}
-                </MenuItem>
-                <MenuItem icon={<Captions size={16} className={self.cc ? "text-accent-ink" : ""} />} onClick={() => (meeting.toggleCaptions(), setMenu(null))}>
-                  {self.cc ? "Turn off captions" : "Live captions"}
+                    <div className="my-1 h-px bg-line" />
+                  </>
+                )}
+                <MenuItem icon={<Sparkles size={16} className={state.effect !== "none" ? "text-accent-ink" : ""} />} onClick={() => (setMenu(null), setDialog("effects"))} id="menu-effects">
+                  Backgrounds and effects
                 </MenuItem>
                 <MenuItem icon={<Link2 size={16} />} onClick={() => (copyLink(), setMenu(null))}>
                   Copy invite link
@@ -568,17 +654,15 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
                 </MenuItem>
               </Popover>
             )}
-            {menu === "security" && (
-              <div className="sm:hidden">
-                <Popover align="right">
-                  <SecurityMenu settings={state.settings} set={(patch) => void meeting.updateSettings(patch)} />
-                </Popover>
-              </div>
+            {menu === "security" && inMore.some((x) => x.key === "security") && (
+              <Popover align="right">
+                <SecurityMenu settings={state.settings} set={(patch) => void meeting.updateSettings(patch)} />
+              </Popover>
             )}
           </div>
         </div>
 
-        <div className="relative">
+        <div ref={rightRef} className="relative shrink-0">
           <button
             className="btn btn-danger h-10 rounded-xl px-4"
             onClick={() => {
@@ -591,7 +675,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           </button>
           {menu === "leave" && (
             <Popover align="right">
-              <div className="w-64 p-1">
+              <div className="w-full p-1 sm:w-64">
                 <button className="btn btn-danger w-full" onClick={() => void meeting.leave(true)} id="menu-end">
                   End meeting for all
                 </button>
@@ -609,6 +693,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
       ))}
       {dialog === "settings" && <SettingsDialog meeting={meeting} sinkId={sinkId} setSinkId={setSinkId} onClose={() => setDialog(null)} />}
       {dialog === "shortcuts" && <Shortcuts onClose={() => setDialog(null)} />}
+      {dialog === "effects" && <EffectsDialog meeting={meeting} stream={selfStream} effect={state.effect} camOff={self.camOff} onClose={() => setDialog(null)} />}
     </div>
   );
 }
@@ -685,24 +770,48 @@ type ControlProps = {
   count?: number;
   id?: string;
   title?: string;
-  /** Hidden below md (tablets and phones). */
-  wide?: boolean;
-  /** Hidden below sm (phones). */
-  phoneHidden?: boolean;
+  ref?: React.Ref<HTMLButtonElement>;
 };
 
 /** A control-bar button: an icon with its label underneath, as in desktop meeting apps. */
-function Control(p: ControlProps) {
+function Control({ ref, ...p }: ControlProps) {
   return (
-    <button className={`bar-btn ${p.wide ? "max-md:hidden" : p.phoneHidden ? "max-sm:hidden" : ""}`} data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
+    <button ref={ref} className="bar-btn" data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
       <span>
         {p.children}
         {p.count ? <i className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-raise px-1 text-[10px] font-semibold not-italic text-ink ring-2 ring-[#0a0b0f]">{p.count}</i> : null}
         {p.badge ? <b className="absolute -left-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white ring-2 ring-[#0a0b0f]">{p.badge}</b> : null}
       </span>
-      <span className="hidden sm:block">{p.label}</span>
+      <span className="hidden max-w-full truncate sm:block">{p.label}</span>
     </button>
   );
+}
+
+/**
+ * How many optional controls fit in the bar: the room between the mic and camera on the left and
+ * Leave on the right, in More-button-sized slots, less the three that always show.
+ */
+function useFit() {
+  const footer = useRef<HTMLElement>(null);
+  const left = useRef<HTMLDivElement>(null);
+  const right = useRef<HTMLDivElement>(null);
+  const middle = useRef<HTMLDivElement>(null);
+  const more = useRef<HTMLButtonElement>(null);
+  const [room, setRoom] = useState(0);
+  useLayoutEffect(() => {
+    const els = [footer.current!, left.current!, right.current!];
+    const measure = () => {
+      const f = getComputedStyle(footer.current!);
+      const gap = parseFloat(getComputedStyle(middle.current!).columnGap) || 0;
+      const free = footer.current!.clientWidth - parseFloat(f.paddingLeft) - parseFloat(f.paddingRight) - 2 * (parseFloat(f.columnGap) || 0) - left.current!.offsetWidth - right.current!.offsetWidth;
+      const slot = more.current!.offsetWidth + gap;
+      setRoom(Math.max(0, Math.floor((free + gap) / slot) - 3));
+    };
+    const ro = new ResizeObserver(measure);
+    els.forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, []);
+  return { footerRef: footer, leftRef: left, rightRef: right, middleRef: middle, moreRef: more, room };
 }
 
 /** Microphone and camera: the button toggles, the chevron opens the device menu. */
@@ -732,7 +841,7 @@ function SecurityMenu({ settings, set }: { settings: RoomSettings; set: (patch: 
   );
   const head = (t: string) => <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">{t}</div>;
   return (
-    <div className="w-72 p-1" role="menu">
+    <div className="w-full p-1 sm:w-72" role="menu">
       {item("Lock meeting", settings.locked, { locked: !settings.locked }, "sec-lock")}
       {item("Enable waiting room", settings.waitingRoom, { waitingRoom: !settings.waitingRoom }, "sec-waiting")}
       {item("Hide participant count", settings.hideCount, { hideCount: !settings.hideCount }, "sec-hide-count")}
@@ -748,9 +857,9 @@ function SecurityMenu({ settings, set }: { settings: RoomSettings; set: (patch: 
   );
 }
 
-function DeviceMenu({ sections, onSettings, settingsLabel }: { sections: { title: string; list: MediaDeviceInfo[]; value: string; pick: (id: string) => void }[]; onSettings: () => void; settingsLabel: string }) {
+function DeviceMenu({ sections, onSettings, settingsLabel, extra }: { sections: { title: string; list: MediaDeviceInfo[]; value: string; pick: (id: string) => void }[]; onSettings: () => void; settingsLabel: string; extra?: ReactNode }) {
   return (
-    <div className="w-72 p-1">
+    <div className="w-full p-1 sm:w-72">
       {sections.map((s) => (
         <div key={s.title} className="mb-1">
           <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Select a {s.title.toLowerCase()}</div>
@@ -764,6 +873,7 @@ function DeviceMenu({ sections, onSettings, settingsLabel }: { sections: { title
         </div>
       ))}
       <div className="my-1 h-px bg-line" />
+      {extra}
       <MenuItem icon={<Settings size={16} />} onClick={onSettings}>
         {settingsLabel}
       </MenuItem>
@@ -771,12 +881,14 @@ function DeviceMenu({ sections, onSettings, settingsLabel }: { sections: { title
   );
 }
 
+/** A menu by its button; on phones, a sheet across the screen above the bar (or below the header). */
 function Popover({ children, align = "center", place = "above", offset = 0 }: { children: ReactNode; align?: "center" | "right" | "left"; place?: "above" | "below"; offset?: number }) {
-  const x = align === "right" ? "right-0" : align === "left" ? "" : "left-1/2 -translate-x-1/2";
+  const x = align === "right" ? "sm:right-0" : align === "left" ? "sm:left-[var(--off)]" : "sm:left-1/2 sm:-translate-x-1/2";
+  const y = place === "above" ? "bottom-[84px] sm:bottom-[calc(100%+10px)] max-h-[calc(100dvh-6.5rem)]" : "top-14 sm:top-[calc(100%+6px)] max-h-[calc(100dvh-4.5rem)]";
   return (
     <div
-      className={`absolute z-40 min-w-max rounded-2xl border border-line bg-panel p-1 shadow-2xl shadow-black/50 ${place === "above" ? "bottom-[calc(100%+10px)]" : "top-[calc(100%+6px)]"} ${x}`}
-      style={align === "left" ? { left: offset } : undefined}
+      className={`scroll-thin fixed inset-x-3 z-40 overflow-y-auto rounded-2xl border border-line bg-panel p-1 shadow-2xl shadow-black/50 sm:absolute sm:inset-x-auto sm:min-w-max ${y} ${x}`}
+      style={{ "--off": `${offset}px` } as CSSProperties}
       onClick={(e) => e.stopPropagation()}
     >
       {children}
@@ -810,10 +922,10 @@ function Elapsed({ since }: { since: number }) {
   );
 }
 
-function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
-      <div className="card w-full max-w-md space-y-4 p-6" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onClick={onClose}>
+      <div className={`card w-full space-y-4 p-5 sm:p-6 ${wide ? "max-w-xl" : "max-w-md"}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button className="grid h-8 w-8 place-items-center rounded-full hover:bg-raise" onClick={onClose} aria-label={`Close ${title.toLowerCase()}`}>
@@ -848,6 +960,22 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
           </div>
         ))}
       </div>
+    </Dialog>
+  );
+}
+
+function EffectsDialog({ meeting, stream, effect, camOff, onClose }: { meeting: Meeting; stream: MediaStream; effect: Effect; camOff: boolean; onClose: () => void }) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (video.current) video.current.srcObject = stream;
+  }, [stream]);
+  return (
+    <Dialog title="Backgrounds and effects" onClose={onClose} wide>
+      <div className="relative aspect-video overflow-hidden rounded-xl bg-tile">
+        <video ref={video} autoPlay playsInline muted className={`tile-video mirror ${camOff ? "invisible" : ""}`} />
+        {camOff && <p className="absolute inset-0 grid place-items-center text-sm text-muted">Your camera is off</p>}
+      </div>
+      <EffectPicker value={effect} onPick={(e) => void meeting.setEffect(e)} />
     </Dialog>
   );
 }

@@ -126,8 +126,9 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 0.2rem;
-    min-width: 4rem;
-    padding: 0.4rem 0.4rem 0.3rem;
+    /* A fixed width, so the bar can work out how many buttons fit (useFit). */
+    width: 4.5rem;
+    padding: 0.4rem 0.3rem 0.3rem;
     border-radius: 0.8rem;
     font-size: 0.68rem;
     color: var(--ink-2);
@@ -150,10 +151,10 @@ body {
   .bar-btn[data-share="true"] > span:first-child { background: #1fae63; color: white; padding: 0 0.6rem; }
   .bar-btn[data-share="true"][data-on="true"] > span:first-child { background: var(--danger); }
   .bar-btn[data-rec="true"] > span:first-child { color: var(--danger); }
-  .bar-btn.split { padding: 0.4rem 0.2rem 0.3rem; min-width: 4.6rem; }
+  .bar-btn.split { padding: 0.4rem 0.2rem 0.3rem; width: 4.6rem; }
   @media (max-width: 639px) {
-    .bar-btn { min-width: 3.1rem; }
-    .bar-btn.split { min-width: 3.1rem; }
+    .bar-btn { width: 3.1rem; }
+    .bar-btn.split { width: 3.1rem; }
     .bar-btn.split > span:first-child { width: 2.6rem; }
     .bar-btn.split > span:first-child > button:first-child { border-radius: 0.55rem; }
   }

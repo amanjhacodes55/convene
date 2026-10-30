@@ -1,9 +1,11 @@
 "use client";
 
-import { CalendarClock, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { CalendarClock, Mic, MicOff, Sparkles, Video, VideoOff, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { saveEffect, savedEffect, type Effect } from "@/client/effects";
 import { call, type Me } from "@/client/fetch";
 import { audioConstraints, videoConstraints } from "@/client/meeting";
+import { EffectPicker, usePreviewEffect } from "./effects";
 import { Avatar, Logo } from "./ui";
 
 export type RoomInfo = {
@@ -59,6 +61,11 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
   /** Joining waits for the camera and microphone request to settle, or the call starts without them. */
   const [ready, setReady] = useState(false);
   const handedOff = useRef(false);
+  const [effect, setEffect] = useState<Effect>(savedEffect);
+  const [effects, showEffects] = useState(false);
+  /** Bumped when the camera track changes, so the preview's effect picks up the new one. */
+  const [camTrack, setCamTrack] = useState(0);
+  usePreviewEffect(video, stream, effect, camOn, `${ready}:${camTrack}`);
 
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [passcode, setPasscode] = useState(credentials.passcode ?? "");
@@ -164,6 +171,7 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
     if (kind === "audio") track.enabled = micOn;
     stream.addTrack(track);
     if (video.current) video.current.srcObject = stream;
+    if (kind === "video") setCamTrack((n) => n + 1);
   }
 
   async function toggleCam() {
@@ -220,8 +228,31 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
               <button className="ctl" data-off={!camOn} onClick={toggleCam} aria-label={camOn ? "Turn off camera" : "Turn on camera"} id="lobby-cam">
                 <span>{camOn ? <Video size={20} /> : <VideoOff size={20} />}</span>
               </button>
+              <button className="ctl" data-on={effect !== "none"} onClick={() => showEffects(!effects)} aria-label="Backgrounds and effects" title="Backgrounds and effects" id="lobby-effects">
+                <span>
+                  <Sparkles size={20} />
+                </span>
+              </button>
             </div>
           </div>
+          {effects && (
+            <div className="card mt-3 p-4" id="lobby-effects-panel">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="font-medium">Backgrounds and effects</p>
+                <button className="grid h-8 w-8 place-items-center rounded-full hover:bg-raise" onClick={() => showEffects(false)} aria-label="Close backgrounds and effects">
+                  <X size={17} />
+                </button>
+              </div>
+              {!camOn && <p className="mb-3 text-sm text-warn">Turn on your camera to see the effect.</p>}
+              <EffectPicker
+                value={effect}
+                onPick={(e) => {
+                  setEffect(e);
+                  saveEffect(e);
+                }}
+              />
+            </div>
+          )}
           <div className="mt-3 flex items-center gap-3 text-sm text-ink-2">
             <Mic size={15} />
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-raise" aria-label="Microphone level">
