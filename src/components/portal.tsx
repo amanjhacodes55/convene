@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { call, useMe, type Me } from "@/client/fetch";
+import { ThemeToggle } from "./theme";
 import { Avatar, Logo } from "./ui";
 
 const MeContext = createContext<Me | null>(null);
@@ -48,12 +49,13 @@ export function PortalShell({ children, actions }: { children: ReactNode; action
   return (
     <MeContext.Provider value={me}>
       <div className="flex min-h-dvh w-full flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-bg/90 px-4 backdrop-blur sm:px-6">
+        <header className="glass sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line/70 px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold">
             <Logo size={26} /> Convene
           </Link>
           <div className="ml-auto flex items-center gap-2">
             {actions}
+            <ThemeToggle />
             <span className="ml-2 hidden items-center gap-2 text-sm text-ink-2 md:flex">
               <Avatar name={me.name} size={28} />
               {me.name}

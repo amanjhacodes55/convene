@@ -50,7 +50,7 @@ export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
 export function Screen({ title, children, actions }: { title: string; children?: ReactNode; actions?: ReactNode }) {
   return (
     <main className="grid min-h-dvh place-items-center px-4">
-      <div className="card w-full max-w-md p-8 text-center">
+      <div className="card dialog-in w-full max-w-md p-8 text-center" style={{ boxShadow: "var(--shadow)" }}>
         <div className="mb-5 flex justify-center">
           <Logo size={40} />
         </div>

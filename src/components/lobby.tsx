@@ -6,6 +6,7 @@ import { saveEffect, savedEffect, type Effect } from "@/client/effects";
 import { call, type Me } from "@/client/fetch";
 import { audioConstraints, videoConstraints } from "@/client/meeting";
 import { EffectPicker, usePreviewEffect } from "./effects";
+import { ThemeToggle } from "./theme";
 import { Avatar, Logo } from "./ui";
 
 export type RoomInfo = {
@@ -207,20 +208,22 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col px-4 py-5 sm:px-6">
-      <header className="flex items-center gap-2.5 text-lg font-semibold">
+    <main className="relative isolate mx-auto flex min-h-dvh w-full max-w-6xl flex-col px-4 py-5 sm:px-6">
+      <div className="aurora opacity-60" style={{ position: "fixed" }} aria-hidden />
+      <header className="fade-in flex items-center gap-2.5 text-lg font-semibold">
         <Logo /> Convene
+        <ThemeToggle className="ml-auto" />
       </header>
       <div className="grid flex-1 items-center gap-10 py-8 lg:grid-cols-[1.4fr_1fr]">
-        <div>
-          <div className="relative aspect-video overflow-hidden rounded-2xl bg-tile">
+        <div className="rise">
+          <div className="relative aspect-video overflow-hidden rounded-3xl bg-tile ring-1 ring-line" style={{ boxShadow: "var(--shadow)" }}>
             <video ref={video} autoPlay playsInline muted className={`tile-video mirror ${camOn ? "" : "invisible"}`} />
             {!camOn && (
               <div className="absolute inset-0 grid place-items-center">
                 <Avatar name={name || "You"} size={96} />
               </div>
             )}
-            <span className="absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-sm">{name || "You"}</span>
+            <span className="absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-sm text-white backdrop-blur-sm">{name || "You"}</span>
             <div className="absolute inset-x-0 bottom-4 flex justify-center gap-3">
               <button className="ctl" data-off={!micOn} onClick={toggleMic} aria-label={micOn ? "Turn off microphone" : "Turn on microphone"} id="lobby-mic">
                 <span>{micOn ? <Mic size={20} /> : <MicOff size={20} />}</span>
@@ -236,7 +239,7 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
             </div>
           </div>
           {effects && (
-            <div className="card mt-3 p-4" id="lobby-effects-panel">
+            <div className="card pop-down mt-3 p-4" id="lobby-effects-panel">
               <div className="mb-3 flex items-center justify-between">
                 <p className="font-medium">Backgrounds and effects</p>
                 <button className="grid h-8 w-8 place-items-center rounded-full hover:bg-raise" onClick={() => showEffects(false)} aria-label="Close backgrounds and effects">
@@ -256,7 +259,7 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
           <div className="mt-3 flex items-center gap-3 text-sm text-ink-2">
             <Mic size={15} />
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-raise" aria-label="Microphone level">
-              <div className="h-full rounded-full bg-good transition-[width] duration-75" style={{ width: `${micOn ? level * 100 : 0}%` }} />
+              <div className="h-full rounded-full bg-gradient-to-r from-good to-[var(--speaking)] transition-[width] duration-75" style={{ width: `${micOn ? level * 100 : 0}%` }} />
             </div>
           </div>
           {problem && <p className="mt-3 text-sm text-warn">{problem}</p>}
@@ -293,7 +296,7 @@ export function Lobby({ info, isHost, credentials, onJoin }: { info: RoomInfo; i
           </div>
         </div>
 
-        <div className="lg:pl-4">
+        <div className="rise lg:pl-4" style={{ animationDelay: "120ms" }}>
           <p className="text-sm text-ink-2">{isHost ? "You're the host of" : "You're joining"}</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight">{info.title}</h1>
           <p className="mt-2 font-mono text-sm text-muted">{info.code}</p>

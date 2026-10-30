@@ -1,12 +1,15 @@
 @import "tailwindcss";
 
-/* One dark palette: meetings are looked at for an hour at a time, often with the lights low. */
-:root {
+/* Two palettes. Dark is the default (meetings are often looked at for an hour with the lights low);
+   light is for daytime and bright rooms. src/client/theme.ts picks one and sets data-theme on <html>. */
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0b0d12;
   --panel: #13161d;
   --tile: #1a1e27;
   --raise: #222734;
+  --hover: #2a3040;
   --line: #2a3040;
   --ink: #eef0f6;
   --ink-2: #b4b9c8;
@@ -18,6 +21,51 @@
   --warn: #f5b84a;
   --danger: #ef4d5a;
   --speaking: #5ee0a0;
+  /* The call's backdrop, a shade darker than the page so the tiles stand out. */
+  --stage: #0a0b0f;
+  --glass: rgba(19, 22, 29, 0.72);
+  --scrim: rgba(3, 4, 8, 0.62);
+  --shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --glow: rgba(109, 124, 255, 0.28);
+  --title-from: #8f9bff;
+  --title-to: #c19bff;
+  /* Code: JSON keys, strings, literals and numbers; also HTTP methods. */
+  --code-key: #9fb0ff;
+  --code-str: #8fd6a8;
+  --code-lit: #f2a97f;
+  --code-num: #f5c97a;
+  --code-del: #ff8a94;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --tile: #e6e9f2;
+  --raise: #eef0f6;
+  --hover: #e3e7f0;
+  --line: #dde1ea;
+  --ink: #0f1222;
+  --ink-2: #444b61;
+  --muted: #747b90;
+  --accent: #5a69f6;
+  --accent-2: #8259f0;
+  --accent-ink: #4250e0;
+  --good: #11a066;
+  --warn: #c7870a;
+  --danger: #e2384a;
+  --speaking: #18b06c;
+  --stage: #eceef4;
+  --glass: rgba(255, 255, 255, 0.78);
+  --scrim: rgba(22, 26, 40, 0.42);
+  --shadow: 0 24px 60px -24px rgba(32, 40, 80, 0.28), 0 2px 8px rgba(32, 40, 80, 0.08);
+  --glow: rgba(90, 105, 246, 0.22);
+  --title-from: #5a69f6;
+  --title-to: #9a4ff0;
+  --code-key: #3f4fd6;
+  --code-str: #157a4c;
+  --code-lit: #b8521d;
+  --code-num: #9a6a00;
+  --code-del: #c42a3a;
 }
 
 @theme inline {
@@ -25,6 +73,7 @@
   --color-panel: var(--panel);
   --color-tile: var(--tile);
   --color-raise: var(--raise);
+  --color-hover: var(--hover);
   --color-line: var(--line);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
@@ -34,6 +83,8 @@
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
+  --color-stage: var(--stage);
+  --color-glass: var(--glass);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -43,9 +94,20 @@ body {
   color: var(--ink);
 }
 
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* Switching theme eases every colour across for a moment (setTheme adds the class). */
+.theme-shift,
+.theme-shift *,
+.theme-shift *::before,
+.theme-shift *::after {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, fill 0.3s ease, box-shadow 0.3s ease !important;
+}
+
 /* Components sit in Tailwind's components layer, so utilities on the same element win. */
 @layer components {
   .btn {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -58,20 +120,39 @@ body {
     background: var(--raise);
     color: var(--ink);
     border: 1px solid var(--line);
-    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    transition: background 0.18s, border-color 0.18s, box-shadow 0.25s, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
     white-space: nowrap;
   }
-  .btn:hover { background: #2a3040; }
-  .btn:active { transform: translateY(1px); }
+  .btn:hover { background: var(--hover); }
+  .btn:active { transform: translateY(1px) scale(0.98); }
+  .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--glow); }
   .btn:disabled { opacity: 0.5; pointer-events: none; }
   .btn-primary {
+    overflow: hidden;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
     border-color: transparent;
     color: white;
+    box-shadow: 0 6px 20px -8px var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
-  .btn-primary:hover { background: linear-gradient(135deg, #7d8aff, #9d7fff); }
-  .btn-danger { background: var(--danger); border-color: transparent; color: white; }
-  .btn-danger:hover { background: #f4606b; }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 28px -8px var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  }
+  /* A sheen that sweeps across primary buttons on hover. */
+  .btn-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%);
+    transform: translateX(-120%);
+    transition: transform 0.6s ease;
+    pointer-events: none;
+  }
+  .btn-primary:hover::after { transform: translateX(120%); }
+  .btn-danger { background: var(--danger); border-color: transparent; color: white; box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--danger) 70%, transparent); }
+  .btn-danger:hover { background: var(--danger); filter: brightness(1.1); }
 
   .input {
     height: 2.75rem;
@@ -82,9 +163,10 @@ body {
     border: 1px solid var(--line);
     color: var(--ink);
     outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color 0.15s, box-shadow 0.2s;
   }
-  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(109, 124, 255, 0.25); }
+  .input:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow); }
   .input::placeholder { color: var(--muted); }
   select.input { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 2rem; }
 
@@ -92,9 +174,29 @@ body {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 1.25rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  /* A card that lifts toward the pointer. */
+  .card-hover { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s, border-color 0.25s; }
+  .card-hover:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: var(--shadow); }
+
+  /* Frosted surfaces: headers, the call's control bar, overlays. */
+  .glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: saturate(1.6) blur(16px);
+    backdrop-filter: saturate(1.6) blur(16px);
   }
 
-  /* A control-bar button: round, with a label underneath on wide screens. */
+  .text-gradient {
+    background: linear-gradient(100deg, var(--title-from), var(--title-to), var(--title-from));
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: sheen 6s linear infinite;
+  }
+
+  /* A round lobby button: the icon, with a label underneath on wide screens. */
   .ctl {
     display: flex;
     flex-direction: column;
@@ -110,15 +212,19 @@ body {
     width: 2.9rem;
     height: 2.9rem;
     border-radius: 999px;
-    background: var(--raise);
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
     color: var(--ink);
-    transition: background 0.15s, transform 0.1s;
+    box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.4);
+    transition: background 0.18s, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
     position: relative;
   }
-  .ctl:hover > span:first-child { background: #2e3446; }
-  .ctl:active > span:first-child { transform: scale(0.96); }
-  .ctl[data-off="true"] > span:first-child { background: var(--danger); color: white; }
-  .ctl[data-on="true"] > span:first-child { background: var(--accent); color: white; }
+  .ctl:hover > span:first-child { background: var(--hover); transform: translateY(-2px); }
+  .ctl:active > span:first-child { transform: scale(0.94); }
+  .ctl[data-off="true"] > span:first-child { background: var(--danger); border-color: transparent; color: white; }
+  .ctl[data-on="true"] > span:first-child { background: var(--accent); border-color: transparent; color: white; }
 
   /* The in-call control bar: icon over label, like desktop meeting apps. */
   .bar-btn {
@@ -132,7 +238,7 @@ body {
     border-radius: 0.8rem;
     font-size: 0.68rem;
     color: var(--ink-2);
-    transition: background 0.15s;
+    transition: background 0.18s, color 0.18s;
     white-space: nowrap;
   }
   .bar-btn:hover { background: var(--raise); color: var(--ink); }
@@ -144,12 +250,15 @@ body {
     min-width: 2.2rem;
     color: var(--ink);
     border-radius: 0.55rem;
+    transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.18s;
   }
+  .bar-btn:hover > span:first-child { transform: translateY(-1px); }
+  .bar-btn:active > span:first-child { transform: scale(0.92); }
   .bar-btn[data-off="true"] > span:first-child { color: var(--danger); }
-  .bar-btn[data-on="true"] { background: rgba(109, 124, 255, 0.18); }
+  .bar-btn[data-on="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .bar-btn[data-on="true"] > span:first-child { color: var(--accent-ink); }
-  .bar-btn[data-share="true"] > span:first-child { background: #1fae63; color: white; padding: 0 0.6rem; }
-  .bar-btn[data-share="true"][data-on="true"] > span:first-child { background: var(--danger); }
+  .bar-btn[data-share="true"] > span:first-child { background: #1fae63; color: white; padding: 0 0.6rem; box-shadow: 0 4px 14px -6px #1fae63; }
+  .bar-btn[data-share="true"][data-on="true"] > span:first-child { background: var(--danger); box-shadow: 0 4px 14px -6px var(--danger); }
   .bar-btn[data-rec="true"] > span:first-child { color: var(--danger); }
   .bar-btn.split { padding: 0.4rem 0.2rem 0.3rem; width: 4.6rem; }
   @media (max-width: 639px) {
@@ -159,15 +268,22 @@ body {
     .bar-btn.split > span:first-child > button:first-child { border-radius: 0.55rem; }
   }
   .bar-btn.split:hover { background: transparent; }
+  .bar-btn.split:hover > span:first-child { transform: none; }
   .bar-btn.split > span:first-child { width: 4.2rem; }
-  .bar-btn.split > span:first-child > button:first-child { height: 1.9rem; border-radius: 0.55rem 0 0 0.55rem; }
+  .bar-btn.split > span:first-child > button:first-child { height: 1.9rem; border-radius: 0.55rem 0 0 0.55rem; transition: background 0.18s; }
+  .bar-btn.split[data-off="true"] > span:first-child > button:first-child { background: color-mix(in srgb, var(--danger) 14%, transparent); }
   .bar-btn.split > span:first-child > button:hover { background: var(--raise); }
-  .bar-btn.split .chev { display: grid; place-items: center; width: 1.3rem; height: 1.9rem; color: var(--muted); border-radius: 0 0.55rem 0.55rem 0; }
+  .bar-btn.split .chev { display: grid; place-items: center; width: 1.3rem; height: 1.9rem; color: var(--muted); border-radius: 0 0.55rem 0.55rem 0; transition: background 0.18s, color 0.18s; }
   .bar-btn.split .chev:hover { color: var(--ink); }
 
   .tile-video { width: 100%; height: 100%; object-fit: cover; }
   .mirror { transform: scaleX(-1); }
+
+  /* The speaking ring: a solid edge with a soft pulse around it. */
+  .speaking { box-shadow: inset 0 0 0 3px var(--speaking); animation: speak 1.6s ease-in-out infinite; }
 }
+
+/* ---- motion -------------------------------------------------------------------------------- */
 
 @keyframes float-up {
   0% { transform: translateY(0) scale(0.6); opacity: 0; }
@@ -176,11 +292,82 @@ body {
 }
 .reaction { animation: float-up 3s ease-out forwards; }
 
-@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
-.toast { animation: toast-in 0.25s ease-out; }
+@keyframes toast-in { from { transform: translateY(10px) scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast { animation: toast-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 @keyframes pulse-dot { 50% { opacity: 0.35; } }
 .rec-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+/* Content rising into place. Stagger siblings with style={{ "--i": n }}. */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 70ms); }
+
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.fade-in { animation: fade 0.22s ease-out both; }
+
+/* Menus and popovers grow from where they open. */
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+.pop-in { animation: pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: bottom center; }
+.pop-down { animation: pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-name: pop-down; transform-origin: top center; }
+@keyframes pop-down { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+@keyframes dialog-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
+.dialog-in { animation: dialog-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Side panels slide in from the right; full screen on phones, they rise instead. */
+@keyframes slide-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+.slide-in { animation: slide-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (max-width: 639px) { .slide-in { animation-name: rise; } }
+
+/* A participant's tile appearing. */
+@keyframes tile-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+.tile-in { animation: tile-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@keyframes speak {
+  0%, 100% { box-shadow: inset 0 0 0 3px var(--speaking), 0 0 0 0 color-mix(in srgb, var(--speaking) 45%, transparent); }
+  50% { box-shadow: inset 0 0 0 3px var(--speaking), 0 0 0 5px color-mix(in srgb, var(--speaking) 0%, transparent); }
+}
+
+@keyframes sheen { to { background-position: 200% center; } }
+
+/* The landing page's background: slow-drifting colour fields. */
+@keyframes drift-a { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(6%, 8%) scale(1.12); } }
+@keyframes drift-b { 0%, 100% { transform: translate(0, 0) scale(1.05); } 50% { transform: translate(-8%, -4%) scale(0.95); } }
+.aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: -1; }
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+}
+.aurora::before { top: -30vmax; left: -12vmax; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 55%, transparent), transparent); animation: drift-a 18s ease-in-out infinite; }
+.aurora::after { top: -22vmax; right: -18vmax; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent-2) 45%, transparent), transparent); animation: drift-b 22s ease-in-out infinite; }
+:root[data-theme="light"] .aurora::before,
+:root[data-theme="light"] .aurora::after { opacity: 0.35; }
+/* A faint dot grid behind the hero, fading out toward the edges. */
+.dot-grid {
+  background-image: radial-gradient(color-mix(in srgb, var(--ink) 12%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent);
+}
+
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+.bob { animation: bob 7s ease-in-out infinite; }
+
+/* Audio bars for someone talking. */
+@keyframes eq { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+.eq > i { display: block; width: 3px; height: 12px; border-radius: 2px; background: var(--speaking); transform-origin: bottom; animation: eq 0.9s ease-in-out infinite; }
+.eq > i:nth-child(2) { animation-delay: 0.15s; }
+.eq > i:nth-child(3) { animation-delay: 0.3s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
 
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 

@@ -18,6 +18,7 @@ import {
   MicOff,
   MonitorUp,
   MonitorX,
+  Moon,
   MoreHorizontal,
   PhoneOff,
   Presentation,
@@ -27,6 +28,7 @@ import {
   Smile,
   Sparkles,
   Square,
+  Sun,
   Users,
   Video,
   VideoOff,
@@ -36,9 +38,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { Effect } from "@/client/effects";
 import type { Meeting, MeetingState, Settings as RoomSettings } from "@/client/meeting";
 import { Recorder } from "@/client/recorder";
+import { useTheme } from "@/client/theme";
 import { EffectPicker } from "./effects";
 import { listDevices } from "./lobby";
 import { ChatPanel, PeoplePanel, PollsPanel } from "./panels";
+import { ThemePicker } from "./theme";
 import { Tile, type TileAction, type TileProps } from "./tile";
 import { Avatar } from "./ui";
 import { Whiteboard } from "./whiteboard";
@@ -385,12 +389,13 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
     },
   ];
   const { footerRef, leftRef, middleRef, rightRef, moreRef, room } = useFit();
+  const theme = useTheme();
   const inBar = extras.slice(0, room);
   const inMore = extras.slice(room);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-[#0a0b0f]" onClick={() => menu && setMenu(null)}>
-      <header className="flex h-12 shrink-0 items-center gap-2 px-3">
+    <div className="flex h-dvh flex-col overflow-hidden bg-stage" onClick={() => menu && setMenu(null)}>
+      <header className="fade-in flex h-12 shrink-0 items-center gap-2 px-3">
         <div className="relative min-w-0">
           <button
             className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-raise"
@@ -480,11 +485,11 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
         <main className="relative flex min-w-0 flex-1 flex-col gap-3 lg:flex-row">
           {main ? (
             <>
-              <div className="min-h-0 min-w-0 flex-1">{main}</div>
+              <div className="fade-in min-h-0 min-w-0 flex-1">{main}</div>
               {strip.length > 0 && (
                 <div className="scroll-thin flex shrink-0 gap-3 overflow-auto lg:w-60 lg:flex-col">
                   {strip.map((t) => (
-                    <div key={t.id} className="aspect-video w-44 shrink-0 lg:w-full">
+                    <div key={t.id} className="tile-in aspect-video w-44 shrink-0 lg:w-full">
                       <Tile {...t} size="sm" />
                     </div>
                   ))}
@@ -496,10 +501,10 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           )}
           {state.captions.length > 0 && (
             <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-6" aria-live="polite" id="captions">
-              <div className="max-w-3xl space-y-1 rounded-xl bg-black/75 px-4 py-2.5 text-center backdrop-blur">
+              <div className="toast max-w-3xl space-y-1 rounded-xl bg-black/75 px-4 py-2.5 text-center text-white shadow-xl backdrop-blur">
                 {state.captions.map((c) => (
                   <p key={c.from} className="text-[17px] leading-snug">
-                    <span className="mr-2 font-semibold text-accent-ink">{c.from === "self" ? "You" : c.name}:</span>
+                    <span className="mr-2 font-semibold text-[#b9c1ff]">{c.from === "self" ? "You" : c.name}:</span>
                     {c.text}
                   </p>
                 ))}
@@ -508,7 +513,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
           )}
         </main>
         {panel && (
-          <div className="fixed inset-0 z-30 p-3 sm:static sm:z-auto sm:p-0">
+          <div className="slide-in fixed inset-0 z-30 p-3 sm:static sm:z-auto sm:p-0">
             {panel === "chat" ? (
               <ChatPanel meeting={meeting} state={state} to={chatTo} setTo={setChatTo} onClose={() => showPanel(null)} />
             ) : (
@@ -524,7 +529,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
 
       <div className="pointer-events-none fixed bottom-24 left-4 z-40 flex flex-col gap-2">
         {state.notices.map((n) => (
-          <div key={n.id} className="toast pointer-events-auto flex items-center gap-3 rounded-xl border border-line bg-panel/95 px-4 py-2.5 text-sm shadow-lg">
+          <div key={n.id} className="toast glass pointer-events-auto flex items-center gap-3 rounded-xl border border-line px-4 py-2.5 text-sm" style={{ boxShadow: "var(--shadow)" }}>
             <span>{n.text}</span>
             {n.action && (
               <button
@@ -551,7 +556,7 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
         </div>
       )}
 
-      <footer ref={footerRef} className="relative flex h-[76px] shrink-0 items-center gap-1 px-3 sm:gap-2" onClick={(e) => e.stopPropagation()}>
+      <footer ref={footerRef} className="glass relative z-10 mt-2 flex h-[76px] shrink-0 items-center gap-1 border-t border-line/60 px-3 sm:gap-2" onClick={(e) => e.stopPropagation()}>
         <div ref={leftRef} className="relative flex shrink-0 items-center gap-1">
           <Split
             label={self.muted ? "Unmute" : "Mute"}
@@ -646,8 +651,11 @@ export function Call({ meeting, state }: { meeting: Meeting; state: MeetingState
                 <MenuItem icon={<Link2 size={16} />} onClick={() => (copyLink(), setMenu(null))}>
                   Copy invite link
                 </MenuItem>
+                <MenuItem icon={theme.resolved === "dark" ? <Sun size={16} /> : <Moon size={16} />} onClick={() => theme.setTheme(theme.resolved === "dark" ? "light" : "dark")} id="menu-theme">
+                  {theme.resolved === "dark" ? "Light theme" : "Dark theme"}
+                </MenuItem>
                 <MenuItem icon={<Settings size={16} />} onClick={() => (setMenu(null), setDialog("settings"))}>
-                  Audio and video settings
+                  Settings
                 </MenuItem>
                 <MenuItem icon={<Keyboard size={16} />} onClick={() => (setMenu(null), setDialog("shortcuts"))}>
                   Keyboard shortcuts
@@ -720,7 +728,7 @@ function Gallery({ tiles }: { tiles: TileProps[] }) {
     <div ref={box} className="flex min-h-0 flex-1 flex-wrap content-center items-center justify-center" style={{ gap }}>
       {best > 0 &&
         tiles.map((t) => (
-          <div key={t.id} style={{ width: best, height: (best * 9) / 16 }}>
+          <div key={t.id} className="tile-in" style={{ width: best, height: (best * 9) / 16, transition: "width .35s cubic-bezier(.2,.8,.2,1), height .35s cubic-bezier(.2,.8,.2,1)" }}>
             <Tile {...t} size={n > 6 ? "sm" : "md"} />
           </div>
         ))}
@@ -779,8 +787,8 @@ function Control({ ref, ...p }: ControlProps) {
     <button ref={ref} className="bar-btn" data-off={p.off ?? false} data-on={p.on ?? false} data-share={p.share ?? false} data-rec={p.rec ?? false} onClick={p.onClick} aria-label={p.label} title={p.title ?? p.label} id={p.id}>
       <span>
         {p.children}
-        {p.count ? <i className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-raise px-1 text-[10px] font-semibold not-italic text-ink ring-2 ring-[#0a0b0f]">{p.count}</i> : null}
-        {p.badge ? <b className="absolute -left-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white ring-2 ring-[#0a0b0f]">{p.badge}</b> : null}
+        {p.count ? <i className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-raise px-1 text-[10px] font-semibold not-italic text-ink ring-2 ring-[var(--stage)]">{p.count}</i> : null}
+        {p.badge ? <b className="absolute -left-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white ring-2 ring-[var(--stage)]">{p.badge}</b> : null}
       </span>
       <span className="hidden max-w-full truncate sm:block">{p.label}</span>
     </button>
@@ -887,8 +895,8 @@ function Popover({ children, align = "center", place = "above", offset = 0 }: { 
   const y = place === "above" ? "bottom-[84px] sm:bottom-[calc(100%+10px)] max-h-[calc(100dvh-6.5rem)]" : "top-14 sm:top-[calc(100%+6px)] max-h-[calc(100dvh-4.5rem)]";
   return (
     <div
-      className={`scroll-thin fixed inset-x-3 z-40 overflow-y-auto rounded-2xl border border-line bg-panel p-1 shadow-2xl shadow-black/50 sm:absolute sm:inset-x-auto sm:min-w-max ${y} ${x}`}
-      style={{ "--off": `${offset}px` } as CSSProperties}
+      className={`scroll-thin fixed inset-x-3 z-40 overflow-y-auto rounded-2xl border border-line bg-panel p-1 sm:absolute sm:inset-x-auto sm:min-w-max ${place === "above" ? "pop-in" : "pop-down"} ${y} ${x}`}
+      style={{ "--off": `${offset}px`, boxShadow: "var(--shadow)" } as CSSProperties}
       onClick={(e) => e.stopPropagation()}
     >
       {children}
@@ -898,7 +906,7 @@ function Popover({ children, align = "center", place = "above", offset = 0 }: { 
 
 function MenuItem({ icon, children, onClick, id }: { icon: ReactNode; children: ReactNode; onClick: () => void; id?: string }) {
   return (
-    <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-raise" onClick={onClick} id={id}>
+    <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-raise" onClick={onClick} id={id}>
       {icon}
       {children}
     </button>
@@ -924,11 +932,11 @@ function Elapsed({ since }: { since: number }) {
 
 function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4" onClick={onClose}>
-      <div className={`card w-full space-y-4 p-5 sm:p-6 ${wide ? "max-w-xl" : "max-w-md"}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
+    <div className="fade-in fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--scrim)] p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className={`card dialog-in w-full space-y-4 p-5 sm:p-6 ${wide ? "max-w-xl" : "max-w-md"}`} style={{ boxShadow: "var(--shadow)" }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button className="grid h-8 w-8 place-items-center rounded-full hover:bg-raise" onClick={onClose} aria-label={`Close ${title.toLowerCase()}`}>
+          <button className="grid h-8 w-8 place-items-center rounded-full transition-all hover:rotate-90 hover:bg-raise" onClick={onClose} aria-label={`Close ${title.toLowerCase()}`}>
             <X size={18} />
           </button>
         </div>
@@ -1000,7 +1008,13 @@ function SettingsDialog({ meeting, sinkId, setSinkId, onClose }: { meeting: Meet
       </label>
     );
   return (
-    <Dialog title="Audio and video" onClose={onClose}>
+    <Dialog title="Settings" onClose={onClose}>
+      <div className="block text-sm text-ink-2">
+        Appearance
+        <div className="mt-1.5">
+          <ThemePicker />
+        </div>
+      </div>
       {!devices ? (
         <p className="text-sm text-muted">Loading devices…</p>
       ) : (

@@ -30,7 +30,7 @@ type BinRequest = { id: string; at: number; method: string; headers: Record<stri
 const TYPE_LABEL = { oauth: "OAuth", server: "Server-to-Server" } as const;
 const binId = (url: string) => url.match(/\/api\/bins\/([0-9a-f]{20})$/)?.[1] ?? null;
 
-export const METHOD_COLOR: Record<string, string> = { GET: "#5ee0a0", POST: "#9fb0ff", PATCH: "#f5c97a", DELETE: "#ff8a94" };
+export const METHOD_COLOR: Record<string, string> = { GET: "var(--good)", POST: "var(--code-key)", PATCH: "var(--code-num)", DELETE: "var(--code-del)" };
 export function Method({ m }: { m: string }) {
   return (
     <span className="inline-block w-14 shrink-0 font-mono text-[11px] font-semibold" style={{ color: METHOD_COLOR[m] }}>

@@ -45,12 +45,13 @@ export function Tile(p: TileProps) {
   const avatar = p.size === "sm" ? 44 : p.size === "lg" ? 112 : 72;
   return (
     <div
-      className="group relative h-full w-full overflow-hidden rounded-2xl bg-tile"
-      style={{ boxShadow: p.speaking ? "inset 0 0 0 3px var(--speaking)" : undefined, transition: "box-shadow .2s" }}
+      className={`group relative h-full w-full overflow-hidden rounded-2xl bg-tile ${p.speaking ? "speaking" : ""}`}
       data-tile={p.id}
     >
       <div className="absolute inset-0 grid place-items-center">
-        <Avatar name={p.name} size={avatar} />
+        <span className={`rounded-full transition-transform duration-300 ${p.speaking ? "scale-105" : ""}`}>
+          <Avatar name={p.name} size={avatar} />
+        </span>
       </div>
       <video
         ref={(el) => {
@@ -64,7 +65,7 @@ export function Tile(p: TileProps) {
       />
 
       {p.status && (
-        <span className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-ink-2">{p.status}</span>
+        <span className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white/80 backdrop-blur-sm">{p.status}</span>
       )}
 
       <div className="absolute right-2 top-2 flex items-center gap-1.5">
@@ -74,24 +75,24 @@ export function Tile(p: TileProps) {
           </span>
         )}
         {p.hand && (
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-warn text-black" title="Hand raised">
+          <span className="grid h-7 w-7 animate-bounce place-items-center rounded-full bg-warn text-black shadow-lg" title="Hand raised">
             <Hand size={15} />
           </span>
         )}
         {p.spotlit && (
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-accent text-white" title="Spotlighted for everyone">
+          <span className="pop-down grid h-7 w-7 place-items-center rounded-full bg-accent text-white shadow-lg" title="Spotlighted for everyone">
             <Star size={14} fill="currentColor" />
           </span>
         )}
         {p.pinned && !p.spotlit && (
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-black/60" title="Pinned">
+          <span className="pop-down grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white" title="Pinned">
             <Pin size={14} />
           </span>
         )}
         {p.actions && p.actions.length > 0 && (
           <div className="relative">
             <button
-              className={`grid h-7 w-7 place-items-center rounded-full bg-black/60 transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100 ${menu ? "opacity-100" : "opacity-0"}`}
+              className={`grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white transition-opacity hover:bg-black/80 group-hover:opacity-100 focus:opacity-100 ${menu ? "opacity-100" : "opacity-0"}`}
               onClick={(e) => (e.stopPropagation(), setMenu(!menu))}
               aria-label={`Options for ${p.name}`}
             >
@@ -100,12 +101,12 @@ export function Tile(p: TileProps) {
             {menu && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
-                <div className="absolute right-0 top-9 z-40 min-w-48 rounded-xl border border-line bg-panel p-1 shadow-2xl shadow-black/50" role="menu">
+                <div className="pop-down absolute right-0 top-9 z-40 min-w-48 rounded-xl border border-line bg-panel p-1" style={{ boxShadow: "var(--shadow)" }} role="menu">
                   {p.actions.map((a) => (
                     <button
                       key={a.label}
                       role="menuitem"
-                      className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-raise ${a.danger ? "text-danger" : ""}`}
+                      className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-raise ${a.danger ? "text-danger" : ""}`}
                       onClick={() => {
                         setMenu(false);
                         a.run();
@@ -121,13 +122,13 @@ export function Tile(p: TileProps) {
         )}
       </div>
 
-      <div className="absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1 text-sm backdrop-blur-sm">
+      <div className="absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1 text-sm text-white backdrop-blur-sm">
         {p.micMuted && <MicOff size={14} className="shrink-0 text-danger" aria-label="Muted" />}
         <span className="truncate">
           {p.name}
-          {p.you && <span className="text-ink-2"> (you)</span>}
+          {p.you && <span className="text-white/70"> (you)</span>}
         </span>
-        {p.host && <span className="rounded bg-white/15 px-1 text-[10px] uppercase tracking-wide text-ink-2">Host</span>}
+        {p.host && <span className="rounded bg-white/15 px-1 text-[10px] uppercase tracking-wide text-white/80">Host</span>}
         {p.quality ? <Bars level={p.quality} /> : null}
       </div>
 

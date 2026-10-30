@@ -7,7 +7,7 @@ import { ENDPOINTS, EVENTS, SCOPES } from "@/lib/catalog";
 export const metadata: Metadata = { title: "API reference", description: "The Convene REST API, OAuth 2.0 and webhooks." };
 
 const BASE = "https://convene-meet.netlify.app";
-const COLOR: Record<string, string> = { GET: "#5ee0a0", POST: "#9fb0ff", PATCH: "#f5c97a", DELETE: "#ff8a94" };
+const COLOR: Record<string, string> = { GET: "var(--good)", POST: "var(--code-key)", PATCH: "var(--code-num)", DELETE: "var(--code-del)" };
 
 const VERIFY = `import crypto from "node:crypto";
 

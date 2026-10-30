@@ -52,11 +52,11 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
     return () => removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={onClose}>
-      <div className={`card max-h-[90dvh] w-full overflow-y-auto p-6 shadow-2xl shadow-black/50 ${wide ? "max-w-2xl" : "max-w-md"}`} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
+    <div className="fade-in fixed inset-0 z-50 grid place-items-center bg-[var(--scrim)] p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className={`card dialog-in max-h-[90dvh] w-full overflow-y-auto p-6 ${wide ? "max-w-2xl" : "max-w-md"}`} style={{ boxShadow: "var(--shadow)" }} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button className="grid h-8 w-8 place-items-center rounded-full hover:bg-raise" onClick={onClose} aria-label="Close">
+          <button className="grid h-8 w-8 place-items-center rounded-full transition-all hover:rotate-90 hover:bg-raise" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </div>
@@ -115,7 +115,7 @@ export function Json({ value, className = "" }: { value: unknown; className?: st
     <pre className={`scroll-thin overflow-auto rounded-xl border border-line bg-bg p-4 font-mono text-[12.5px] leading-relaxed ${className}`}>
       {parts.map((p, i) => {
         if (i % 2 === 0) return p;
-        const color = /^"/.test(p) ? (/^\s*:/.test(parts[i + 1] ?? "") ? "#9fb0ff" : "#8fd6a8") : /^(true|false|null)$/.test(p) ? "#f2a97f" : "#f5c97a";
+        const color = /^"/.test(p) ? (/^\s*:/.test(parts[i + 1] ?? "") ? "var(--code-key)" : "var(--code-str)") : /^(true|false|null)$/.test(p) ? "var(--code-lit)" : "var(--code-num)";
         return (
           <span key={i} style={{ color }}>
             {p}

@@ -22,7 +22,7 @@ export default function Developers() {
           <span className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1 text-xs text-ink-2">Convene Developer Platform</span>
           <h1 className="mt-5 text-balance text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl">
             Put meetings{" "}
-            <span className="bg-gradient-to-r from-[#8f9bff] to-[#b393ff] bg-clip-text text-transparent">inside your product</span>.
+            <span className="text-gradient">inside your product</span>.
           </h1>
           <p className="mt-5 max-w-xl text-lg text-ink-2">
             Create a meeting from your CRM, react the moment a customer joins, and keep attendance in sync. One REST API, OAuth apps with scopes, and webhooks.
@@ -36,7 +36,7 @@ export default function Developers() {
             </Link>
           </div>
         </div>
-        <div className="card overflow-hidden p-0 shadow-2xl shadow-black/40">
+        <div className="card overflow-hidden p-0" style={{ boxShadow: "var(--shadow)" }}>
           <div className="flex items-center gap-1.5 border-b border-line px-4 py-3">
             <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
             <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
