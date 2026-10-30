@@ -11,7 +11,7 @@
 [![WebRTC](https://img.shields.io/badge/WebRTC-peer%20to%20peer-333?logo=webrtc&logoColor=white)](https://webrtc.org)
 
 **Live:** <https://convene-meet.netlify.app> · [Developer docs](https://convene-meet.netlify.app/developers/docs) ·
-[Android app](https://github.com/amanjhacodes55/convene/releases/tag/android-v1.0.0) ·
+[Download the apps](https://convene-meet.netlify.app/download) (macOS, Windows, Linux, Android) ·
 [**Watch the demo video (4 min)**](docs/media/convene-demo.mp4)
 
 [![Convene demo video: a meeting in gallery view](docs/media/call.jpg)](docs/media/convene-demo.mp4)
@@ -179,6 +179,17 @@ runs the web meeting page in a WebView, so everything but screen sharing works a
 (Android 8.0+) from the [latest release](https://github.com/amanjhacodes55/convene/releases/tag/android-v1.0.0).
 
 <img src="android/docs/screenshots/home.png" alt="Convene for Android: home screen" width="260" />
+
+## Desktop app
+
+[`desktop/`](desktop/) is Convene for macOS, Windows and Linux: the web app in a window of its own (Electron),
+with camera, microphone, notifications and a screen-share picker granted to the Convene server and nothing else.
+Links to other sites open in your browser. Point it at a self-hosted server with `CONVENE_URL=https://…`.
+
+**[Download it](https://convene-meet.netlify.app/download)**, or pick a file from the
+[desktop release](https://github.com/amanjhacodes55/convene/releases/tag/desktop-v1.0.0). The
+[Desktop app workflow](.github/workflows/desktop.yml) builds the installers on macOS, Windows and Linux runners
+when a `desktop-v*` tag is pushed. To run it from source: `cd desktop && npm install && npm start`.
 
 ## ☕ Buy me a coffee
 

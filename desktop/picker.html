@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+    <title>Share your screen</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+      body { margin: 0; background: #13161d; color: #eef0f6; display: flex; flex-direction: column; height: 100vh; }
+      header { padding: 18px 20px 6px; }
+      h1 { margin: 0; font-size: 17px; font-weight: 600; }
+      p { margin: 4px 0 0; color: #b4b9c8; font-size: 13px; }
+      nav { display: flex; gap: 6px; padding: 12px 20px 0; }
+      nav button { border: 1px solid #2a3040; background: transparent; color: #b4b9c8; border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+      nav button[aria-pressed="true"] { background: #6d7cff; border-color: #6d7cff; color: white; }
+      main { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px 20px; align-content: start; }
+      .source { border: 2px solid transparent; background: #1a1e27; border-radius: 12px; padding: 8px; cursor: pointer; text-align: left; color: inherit; font: inherit; transition: border-color 0.15s, transform 0.15s; }
+      .source:hover { transform: translateY(-2px); }
+      .source[aria-selected="true"] { border-color: #6d7cff; }
+      .source img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #0b0d12; border-radius: 8px; }
+      .source span { display: block; margin-top: 7px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid #2a3040; }
+      footer button { height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid #2a3040; background: #222734; color: #eef0f6; font-size: 14px; cursor: pointer; }
+      #share { background: linear-gradient(135deg, #6d7cff, #8f6dff); border-color: transparent; color: white; }
+      #share:disabled { opacity: 0.5; cursor: default; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Choose what to share</h1>
+      <p>Everyone in the meeting will see it.</p>
+    </header>
+    <nav>
+      <button data-tab="screen" aria-pressed="true">Entire screen</button>
+      <button data-tab="window" aria-pressed="false">Window</button>
+    </nav>
+    <main id="list"></main>
+    <footer>
+      <button id="cancel">Cancel</button>
+      <button id="share" disabled>Share</button>
+    </footer>
+    <script>
+      let sources = [];
+      let tab = "screen";
+      let selected = null;
+      const list = document.getElementById("list");
+      const share = document.getElementById("share");
+
+      function render() {
+        list.replaceChildren(
+          ...sources
+            .filter((s) => (tab === "screen") === s.screen)
+            .map((s) => {
+              const b = document.createElement("button");
+              b.className = "source";
+              b.setAttribute("aria-selected", String(s.id === selected));
+              const img = document.createElement("img");
+              img.src = s.thumbnail;
+              img.alt = "";
+              const name = document.createElement("span");
+              name.textContent = s.name;
+              b.append(img, name);
+              b.onclick = () => ((selected = s.id), (share.disabled = false), render());
+              b.ondblclick = () => window.picker.choose(s.id);
+              return b;
+            }),
+        );
+      }
+
+      document.querySelectorAll("nav button").forEach((b) => {
+        b.onclick = () => {
+          tab = b.dataset.tab;
+          document.querySelectorAll("nav button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+          render();
+        };
+      });
+      share.onclick = () => selected && window.picker.choose(selected);
+      document.getElementById("cancel").onclick = () => window.close();
+      addEventListener("keydown", (e) => e.key === "Escape" && window.close());
+
+      window.picker.sources().then((s) => {
+        sources = s;
+        render();
+      });
+    </script>
+  </body>
+</html>

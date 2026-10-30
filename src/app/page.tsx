@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, Captions, Code2, Hand, Lock, MessageSquare, Mic, MonitorUp, PenTool, Radio, ShieldCheck, Smile, Sparkles, Users, Video } from "lucide-react";
+import { Apple, ArrowRight, CalendarDays, Captions, Code2, Hand, Lock, MessageSquare, Mic, Monitor, MonitorUp, PenTool, Radio, ShieldCheck, Smartphone, Smile, Sparkles, Terminal, Users, Video } from "lucide-react";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site";
 import { JoinMeeting, StartMeeting } from "@/components/start";
@@ -15,6 +15,13 @@ const FEATURES = [
   { icon: PenTool, title: "Shared whiteboard", text: "Sketch an idea together: pens, shapes, text and a highlighter that everyone in the meeting draws on at once." },
   { icon: Sparkles, title: "Backgrounds and effects", text: "Blur your room or swap it for a picture of your own. It runs on your device, so your video never leaves it." },
   { icon: Lock, title: "Private by design", text: "Audio and video go straight between participants, encrypted with DTLS-SRTP. No account needed to join." },
+];
+
+const APPS = [
+  { id: "mac", label: "Mac", icon: Apple },
+  { id: "windows", label: "Windows", icon: Monitor },
+  { id: "linux", label: "Linux", icon: Terminal },
+  { id: "android", label: "Android", icon: Smartphone },
 ];
 
 /** Staggers a `.rise` element: the nth one starts n beats after the first. */
@@ -51,6 +58,14 @@ export default function Home() {
             <div className="rise" style={i(4)}>
               <JoinMeeting />
             </div>
+          </div>
+          <div className="rise mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-2" style={i(5)}>
+            <span className="text-muted">Get the app:</span>
+            {APPS.map((a) => (
+              <Link key={a.label} href={`/download#download-${a.id}`} className="flex items-center gap-1.5 transition-colors hover:text-ink">
+                <a.icon size={15} /> {a.label}
+              </Link>
+            ))}
           </div>
         </div>
 

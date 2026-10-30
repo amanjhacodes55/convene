@@ -1,0 +1,61 @@
+name: Desktop app
+
+# Builds the desktop app on macOS, Windows and Linux and attaches the installers to a GitHub release.
+# Push a tag like desktop-v1.0.0 (matching desktop/package.json's version), or run it by hand with a tag.
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. desktop-v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release if it doesn't exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "Convene for desktop ${TAG#desktop-v}" --notes-file desktop/RELEASE_NOTES.md
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npx electron-builder --publish never
+      - name: Smoke-test the Linux build
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node smoke.mjs dist/linux-unpacked/convene
+      - name: Attach the installers to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(dist/Convene-*.dmg dist/Convene-*.exe dist/Convene-*.AppImage dist/Convene-*.deb)
+          ls -la "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
